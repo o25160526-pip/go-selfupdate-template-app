@@ -1,53 +1,57 @@
 # Go Self-Update Template App
 
-A reusable Go repository template for a six-target desktop/headless application with dual-source self-update, signed policy manifest, staged rollout, rollback, cache/prefetch, feature registry, TUI-style menu, tray build tag, and release gates.
+Template ứng dụng Go headless/desktop có cơ chế tự cập nhật an toàn, hỗ trợ GitHub Releases và Azure Blob Storage. Dự án tập trung vào kiểm tra tính toàn vẹn, chữ ký, chính sách phát hành, rollout từng phần, cache, rollback và smoke test khi release.
 
-## What is implemented
+[![Build](https://github.com/o25160526-pip/go-selfupdate-template-app/actions/workflows/build.yml/badge.svg)](https://github.com/o25160526-pip/go-selfupdate-template-app/actions/workflows/build.yml)
 
-- Display version `1.YY.MMDD.HHmm` and SemVer-compatible Git tag `v1.YY.MDDHHmm`.
-- UTC version generation with collision avoidance when a tag already exists.
-- GitHub Releases source and Azure Blob `index.json` source queried concurrently.
-- Stable, beta, and internal channels. Internal draft access requires `APP_UPDATE_TOKEN`.
-- Exact OS/architecture asset selection for Windows, Linux, and macOS on amd64/arm64.
-- Resumable downloads (`Range`), exponential retry, `.part` files, state file, SHA-256, minisign-format Ed25519 verification (with raw-signature backward compatibility), and proxy support through Go's default transport.
-- Signed manifest policy: `force_update`, `min_supported`, blocked versions, stable rollout bucket, source order, expiry, and two embedded public keys for rotation.
-- Atomic replacement via a vendored, source-compatible subset of `github.com/minio/selfupdate` v0.6.0, persistent local rollback, and an update lock.
-- Binary blob cache with LRU pruning plus a 15-minute HTTP metadata cache with ETag revalidation; prefetch only considers versions newer than the running binary.
-- Feature registry and `make new-feature NAME=...` generator without changing `main.go`.
-- GitHub Actions and Azure Pipelines definitions, six release targets, real upgrade/rollback/upgrade smoke test, draft promotion gate, and signed release manifest.
+## Mục lục
 
-## Quick start
+- [Tính năng](#tính-năng)
+- [Kiến trúc](#kiến-trúc)
+- [Cài đặt nhanh](#cài-đặt-nhanh)
+- [Cấu hình](#cấu-hình)
+- [Các lệnh](#các-lệnh)
+- [Tài liệu](#tài-liệu)
+
+## Tính năng
+
+- Version build theo UTC: `1.YY.MMDD.HHmm`; tag release tương ứng là `v1.YY.MDDHHmm`.
+- Tra cứu đồng thời GitHub Releases và Azure Blob `index.json`.
+- Kênh `stable`, `beta`, `internal`; kênh internal yêu cầu `APP_UPDATE_TOKEN`.
+- Chọn artifact chính xác theo hệ điều hành và kiến trúc Windows, Linux, macOS trên amd64/arm64.
+- Tải tiếp tục bằng HTTP Range, retry exponential backoff, file `.part`, SHA-256 và chữ ký Ed25519 dạng minisign.
+- Manifest có chữ ký, giới hạn version, blocked versions, rollout, thứ tự source và thời hạn.
+- Thay binary nguyên tử, lưu rollback và khóa update.
+- Cache binary LRU, cache metadata HTTP 15 phút với ETag và prefetch version mới hơn bản đang chạy.
+- Build headless mặc định; build tag `tray` bật adapter tray không phụ thuộc GUI.
+
+## Kiến trúc
+
+`cmd/app` là entrypoint CLI. `internal/app` xử lý command và cấu hình; `internal/version` parse/so sánh version; `internal/updater` chứa source, resolver, manifest policy, downloader, cache và apply/rollback; `internal/signing` xử lý public key; `internal/buildinfo` nhận metadata qua ldflags. CI dùng GitHub Actions để test, build sáu target, ký artifact, tạo draft release, smoke test upgrade/rollback và publish.
+
+## Cài đặt nhanh
 
 ```bash
+git clone https://github.com/o25160526-pip/go-selfupdate-template-app.git
+cd go-selfupdate-template-app
 go test ./...
-./scripts/e2e-local.sh
 make build
 ./dist/app version --json
 ```
 
-Initialize a copied template:
+Chạy E2E local:
 
 ```bash
-make init APP=myapp MODULE=github.com/acme/myapp
-make new-feature NAME=diagnostics
-go test ./...
+./scripts/e2e-local.sh
 ```
 
-## Configuration
+## Cấu hình
 
-Priority is:
-
-```text
-CLI flag > APP_* environment > config file > manifest policy > defaults
-```
-
-Manifest `force_update` and `blocked` always override local preferences. The default file is `~/.config/app/config.yaml`. See `configs/config.example.yaml`.
-
-Common environment variables:
+Thứ tự ưu tiên là `CLI flag > APP_* environment > config file > manifest policy > defaults`. File mặc định là `~/.config/app/config.yaml`; file mẫu ở [`configs/config.example.yaml`](configs/config.example.yaml).
 
 ```text
 APP_CHANNEL=stable|beta|internal
-APP_UPDATE_TOKEN=...             # mandatory for internal
+APP_UPDATE_TOKEN=...
 APP_GITHUB_OWNER=your-org
 APP_GITHUB_REPO=your-app
 APP_GITHUB_API=https://api.github.com
@@ -58,7 +62,7 @@ APP_CACHE_DIR=~/.cache/app
 APP_TIMEOUT=5m
 ```
 
-## Commands
+## Các lệnh
 
 ```text
 app version [--json]
@@ -74,42 +78,14 @@ app tray
 app features
 ```
 
-Silent update exit contract:
+Khi dùng `update --silent`, mã thoát là: `0` cập nhật thành công, `10` đã mới nhất, `20` không tìm thấy version/artifact, `30` lỗi checksum/chữ ký/policy, `40` lỗi apply/rollback, `50` tất cả source không khả dụng.
 
-| Code | Meaning |
-|---:|---|
-| 0 | Updated successfully |
-| 10 | Already up to date |
-| 20 | Version/asset not found |
-| 30 | Checksum, signature, or policy verification failed |
-| 40 | Apply failed or rollback path failed |
-| 50 | Every update source was unavailable |
+## Tài liệu
 
-## Release setup
-
-Generate a signing pair:
-
-```bash
-go run ./cmd/keygen
-```
-
-Store the printed values as GitHub/Azure secrets or variables:
-
-- `APP_BINARY_PRIVATE_KEY`: base64 Ed25519 private key used to emit four-line minisign signatures.
-- `APP_MANIFEST_PRIVATE_KEY`: base64 Ed25519 private key; it may be the same rotation pair.
-- `APP_CURRENT_PUBLIC_KEY`: base64 minisign public-key payload (raw 32-byte Ed25519 keys remain accepted for compatibility).
-- `APP_NEXT_PUBLIC_KEY`: next rotation key; generate and embed it from the first release.
-- `APP_MANIFEST_URL`: repository variable pointing to the separately hosted signed manifest.
-- Azure additionally needs `AZURE_PUBLIC_BASE_URL`, `AZURE_SERVICE_CONNECTION`, `AZURE_STORAGE_ACCOUNT`, and `AZURE_CONTAINER`.
-
-The release workflow derives a deterministic UTC version from the commit timestamp, creates a draft, executes upgrade → rollback → upgrade on Linux, Windows, and macOS, signs the policy manifest, then publishes the draft. The first release uses the local real-binary E2E path because no previous published binary exists.
-
-## Desktop adapters
-
-The default build is headless (`!tray`). `-tags tray` enables the tray adapter interface without forcing Linux CGO packages into server builds. The shipped adapter is intentionally dependency-free so this repository can be built and verified offline; `docs/DESKTOP_ADAPTERS.md` describes swapping it for `fyne.io/systray` and the menu for Bubble Tea when those GUI dependencies are available.
-
-## Verification artifacts
-
-- `reports/TEST_CASE_REPORT.md`
-- `reports/IMPLEMENTATION_REVIEW.md`
-- `scripts/audit-plan.sh`
+- [`docs/SPEC.md`](docs/SPEC.md): đặc tả kỹ thuật và format manifest.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md): build, release và CI/CD.
+- [`docs/SETUP.md`](docs/SETUP.md): môi trường phát triển.
+- [`docs/EXAMPLES.md`](docs/EXAMPLES.md): ví dụ chạy app và self-update.
+- [`docs/DESKTOP_ADAPTERS.md`](docs/DESKTOP_ADAPTERS.md): adapter desktop.
+- [`docs/ADDING_A_FEATURE.md`](docs/ADDING_A_FEATURE.md): thêm feature bằng generator.
+- [`CHANGELOG.md`](CHANGELOG.md): lịch sử thay đổi.
