@@ -51,6 +51,7 @@ jobs:
           key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}
       - run: go test -race ./...
       - run: go vet ./...
+      - run: sh ./scripts/audit-plan.sh
       - run: sh ./scripts/e2e-local.sh
 
   build:
@@ -159,23 +160,31 @@ jobs:
         run: |
           set -euo pipefail
           current='${{ needs.version.outputs.tag }}'
-          previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=20" --jq ".[] | select(.draft == false and .tag_name != \"$current\") | .tag_name" | head -n1 || true)
+          previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.draft == false and .tag_name != \"$current\") | .tag_name" | head -n1 || true)
+          test -n "$previous" || echo "No prior published release, using the real local-chain fallback on $RUNNER_OS"
           echo "tag=$previous" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$previous" >> "$GITHUB_STEP_SUMMARY"
       - name: First-release real upgrade fallback
         if: steps.previous.outputs.tag == ''
         shell: bash
-        run: sh ./scripts/e2e-local.sh
-      - name: Download previous binary
+        run: |
+          set -euo pipefail
+          sh ./scripts/e2e-local.sh | tee "$RUNNER_TEMP/e2e-local-${{ matrix.os }}.log"
+          grep -F "E2E PASS" "$RUNNER_TEMP/e2e-local-${{ matrix.os }}.log"
+      - name: Download previous Windows/Linux/macOS binary
         if: steps.previous.outputs.tag != ''
         shell: bash
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
           mkdir smoke
-          gh release download '${{ steps.previous.outputs.tag }}' --pattern '${{ env.APP_BINARY_NAME }}_${{ matrix.os }}_${{ matrix.arch }}${{ matrix.ext }}' --dir smoke
-          mv 'smoke/${{ env.APP_BINARY_NAME }}_${{ matrix.os }}_${{ matrix.arch }}${{ matrix.ext }}' 'smoke/app${{ matrix.ext }}'
-          chmod +x 'smoke/app${{ matrix.ext }}' || true
-      - name: Upgrade draft, rollback, upgrade again
+          asset='${{ env.APP_BINARY_NAME }}_${{ matrix.os }}_${{ matrix.arch }}${{ matrix.ext }}'
+          gh release download '${{ steps.previous.outputs.tag }}' --pattern "$asset" --dir smoke
+          test -s "smoke/$asset"
+          mv "smoke/$asset" "smoke/app${{ matrix.ext }}"
+          chmod +x "smoke/app${{ matrix.ext }}" || true
+          echo "Downloaded previous asset: $asset" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upgrade draft and verify exact version
         if: steps.previous.outputs.tag != ''
         shell: bash
         env:
@@ -189,10 +198,19 @@ jobs:
         run: |
           set -euo pipefail
           bin='smoke/app${{ matrix.ext }}'
-          "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m || test "$?" -eq 10
-          test "$($bin version)" = '${{ needs.version.outputs.display }}'
+          old="$($bin version)"
+          echo "version_before=$old" | tee -a "$GITHUB_STEP_SUMMARY"
+          set +e
+          "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
+          status=$?
+          set -e
+          test "$status" -eq 0 || test "$status" -eq 10
+          new="$($bin version)"
+          echo "version_after=$new" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$new" = '${{ needs.version.outputs.display }}'
+          test "$old" != "$new"
           "$bin" rollback --target "$PWD/$bin"
-          test "$($bin version)" != '${{ needs.version.outputs.display }}'
+          test "$($bin version)" = "$old"
           "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
           test "$($bin version)" = '${{ needs.version.outputs.display }}'
 
@@ -224,3 +242,39 @@ jobs:
           set -euo pipefail
           gh release upload '${{ needs.version.outputs.tag }}' manifest.signed.json --clobber
           gh release edit '${{ needs.version.outputs.tag }}' --draft=false
+
+  post-verify:
+    needs: [version, promote]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download the published Windows release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          EXPECTED: ${{ needs.version.outputs.display }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force reports | Out-Null
+          $asset = "${{ env.APP_BINARY_NAME }}_windows_amd64.exe"
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern $asset --dir reports
+          $path = Join-Path reports $asset
+          if (-not (Test-Path $path)) { throw "Published asset not found: $asset" }
+          $version = (& $path version 2>&1 | Out-String).Trim()
+          $status = $LASTEXITCODE
+          @(
+            "release_tag=$env:TAG"
+            "asset=$asset"
+            "version=$version"
+            "exit_code=$status"
+            "download_source=GitHub Release after publish"
+          ) | Set-Content reports/post-publish-$env:TAG.log
+          if ($status -ne 0) { throw "Published binary exited with $status" }
+          if ($version -ne $env:EXPECTED) { throw "Published version '$version' != expected '$env:EXPECTED'" }
+          Get-Content reports/post-publish-$env:TAG.log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: post-publish-verification-${{ needs.version.outputs.tag }}
+          path: reports/post-publish-${{ needs.version.outputs.tag }}.log
+          if-no-files-found: error
