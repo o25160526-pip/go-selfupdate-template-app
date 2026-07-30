@@ -1,0 +1,5 @@
+Release flow verification trigger.
+
+Previous release: v1.26.7300325
+Purpose: verify upgrade from the first published release through the full CI smoke-update gate.
+Triggered: 2026-07-30T03:29:00Z
