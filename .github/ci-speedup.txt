@@ -1,0 +1,1 @@
+Benchmark trigger for the optimized CI critical path.
