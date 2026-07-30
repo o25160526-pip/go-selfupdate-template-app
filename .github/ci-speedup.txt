@@ -1,1 +1,1 @@
-Benchmark trigger for the optimized CI critical path.
+Benchmark trigger for optimized CI, smoke repository context fix.
