@@ -1,13 +1,12 @@
 package main
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/your-org/go-selfupdate-template/internal/signing"
 	"github.com/your-org/go-selfupdate-template/internal/updater"
 )
 
@@ -18,11 +17,11 @@ func main() {
 	flag.Parse()
 	raw := os.Getenv("APP_MANIFEST_PRIVATE_KEY")
 	if raw == "" {
-		fatal("APP_MANIFEST_PRIVATE_KEY is required (base64 Ed25519 private key)")
+		fatal("APP_MANIFEST_PRIVATE_KEY is required (base64 Ed25519 seed or private key)")
 	}
-	key, err := base64.StdEncoding.DecodeString(raw)
-	if err != nil || len(key) != ed25519.PrivateKeySize {
-		fatal("invalid Ed25519 private key")
+	key, err := signing.DecodePrivateKey(raw)
+	if err != nil {
+		fatal("invalid Ed25519 private key: " + err.Error())
 	}
 	b, err := os.ReadFile(*in)
 	if err != nil {
@@ -32,14 +31,14 @@ func main() {
 	if err := json.Unmarshal(b, &m); err != nil {
 		fatal(err.Error())
 	}
-	if err := m.Sign(ed25519.PrivateKey(key), *keyID); err != nil {
+	if err := m.Sign(key, *keyID); err != nil {
 		fatal(err.Error())
 	}
 	b, err = json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		fatal(err.Error())
 	}
-	if err := os.WriteFile(*out, b, 0600); err != nil {
+	if err := os.WriteFile(*out, b, 0o600); err != nil {
 		fatal(err.Error())
 	}
 	fmt.Println(*out)

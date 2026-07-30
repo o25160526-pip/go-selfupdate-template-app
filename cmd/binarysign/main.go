@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"os"
@@ -26,15 +24,15 @@ func main() {
 	if raw == "" {
 		raw = strings.TrimSpace(os.Getenv("APP_MANIFEST_PRIVATE_KEY"))
 	}
-	key, err := base64.StdEncoding.DecodeString(raw)
-	if err != nil || len(key) != ed25519.PrivateKeySize {
-		fatal("APP_BINARY_PRIVATE_KEY or APP_MANIFEST_PRIVATE_KEY must be a base64 Ed25519 private key")
+	key, err := signing.DecodePrivateKey(raw)
+	if err != nil {
+		fatal("APP_BINARY_PRIVATE_KEY or APP_MANIFEST_PRIVATE_KEY must be a base64 Ed25519 seed or private key: " + err.Error())
 	}
 	data, err := os.ReadFile(*file)
 	if err != nil {
 		fatal(err.Error())
 	}
-	sig, err := signing.Sign(ed25519.PrivateKey(key), data, time.Now().UTC())
+	sig, err := signing.Sign(key, data, time.Now().UTC())
 	if err != nil {
 		fatal(err.Error())
 	}

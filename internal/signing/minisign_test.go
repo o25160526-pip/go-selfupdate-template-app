@@ -9,6 +9,29 @@ import (
 	"time"
 )
 
+func TestDecodePrivateKeyAcceptsSeedAndExpandedKey(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := []string{
+		base64.StdEncoding.EncodeToString(privateKey.Seed()),
+		base64.StdEncoding.EncodeToString(privateKey),
+	}
+	for _, value := range values {
+		decoded, err := DecodePrivateKey(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !decoded.Equal(privateKey) {
+			t.Fatal("decoded private key does not match")
+		}
+	}
+	if _, err := DecodePrivateKey(base64.StdEncoding.EncodeToString([]byte("short"))); err == nil {
+		t.Fatal("invalid key length accepted")
+	}
+}
+
 func TestMinisignRoundTripAndRawCompatibility(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	message := []byte("release binary")

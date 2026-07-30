@@ -34,6 +34,23 @@ func keyID(publicKey ed25519.PublicKey) uint64 {
 	return binary.LittleEndian.Uint64(sum[:8])
 }
 
+// DecodePrivateKey accepts the two standard base64 encodings used by CI
+// secret stores: a 32-byte Ed25519 seed or a 64-byte expanded private key.
+func DecodePrivateKey(value string) (ed25519.PrivateKey, error) {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return nil, fmt.Errorf("decode Ed25519 private key: %w", err)
+	}
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(raw), nil
+	case ed25519.PrivateKeySize:
+		return append(ed25519.PrivateKey(nil), raw...), nil
+	default:
+		return nil, fmt.Errorf("invalid Ed25519 private key length %d", len(raw))
+	}
+}
+
 func EncodePublicKey(publicKey ed25519.PublicKey) string {
 	raw := make([]byte, 2+8+ed25519.PublicKeySize)
 	binary.LittleEndian.PutUint16(raw[:2], EdDSA)
