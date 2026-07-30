@@ -26,9 +26,9 @@ jobs:
       display: ${{ steps.version.outputs.display }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with: {fetch-depth: 0}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - id: version
         shell: bash
@@ -42,10 +42,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}
@@ -63,8 +63,8 @@ jobs:
         arch: [amd64, arm64]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - name: Build and sign target
         shell: bash
@@ -92,7 +92,7 @@ jobs:
             -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubRepo=${GITHUB_REPOSITORY#*/}" \
             -o "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}" ./cmd/app
           APP_BINARY_PRIVATE_KEY="${APP_BINARY_PRIVATE_KEY:-${APP_MANIFEST_PRIVATE_KEY:-}}" go run ./cmd/binarysign --file "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.APP_BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*
@@ -105,9 +105,9 @@ jobs:
     outputs:
       tag: ${{ needs.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with: {fetch-depth: 0}
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with: {path: dist, merge-multiple: true}
       - name: Create signed draft release
         env:
@@ -149,8 +149,8 @@ jobs:
             ext: ''
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - name: Locate previous published release
         id: previous
@@ -244,8 +244,8 @@ jobs:
     needs: [version, smoke-update]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - name: Sign policy manifest
         env:
@@ -273,7 +273,7 @@ jobs:
     needs: [version, promote]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Download the published Windows release
         shell: pwsh
         env:
@@ -293,7 +293,7 @@ jobs:
           if ($status -ne 0) { throw "Published binary exited with $status" }
           if ($version -ne $env:EXPECTED) { throw "Published version '$version' != expected '$env:EXPECTED'" }
           Get-Content reports/post-publish-$env:TAG.log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: post-publish-verification-${{ needs.version.outputs.tag }}
           path: reports/post-publish-${{ needs.version.outputs.tag }}.log
