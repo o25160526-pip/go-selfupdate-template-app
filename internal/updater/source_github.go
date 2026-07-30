@@ -48,10 +48,11 @@ func (g *GitHubSource) List(ctx context.Context, opt ListOptions) ([]Release, er
 		Body        string    `json:"body"`
 		PublishedAt time.Time `json:"published_at"`
 		Assets      []struct {
-			Name   string `json:"name"`
-			URL    string `json:"browser_download_url"`
-			Size   int64  `json:"size"`
-			Digest string `json:"digest"`
+			Name        string `json:"name"`
+			APIURL      string `json:"url"`
+			BrowserURL  string `json:"browser_download_url"`
+			Size        int64  `json:"size"`
+			Digest      string `json:"digest"`
 		} `json:"assets"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -75,7 +76,13 @@ func (g *GitHubSource) List(ctx context.Context, opt ListOptions) ([]Release, er
 		r := Release{Version: v.String(), Tag: x.TagName, Draft: x.Draft, Prerelease: x.Prerelease, Changelog: x.Body, PublishedAt: x.PublishedAt, Source: g.Name()}
 		for _, a := range x.Assets {
 			sha := strings.TrimPrefix(a.Digest, "sha256:")
-			r.Assets = append(r.Assets, Asset{Name: a.Name, URL: a.URL, Size: a.Size, SHA256: sha})
+			// The API asset URL is required for authenticated access to private or
+			// draft releases. browser_download_url is only a public CDN URL.
+			url := a.APIURL
+			if url == "" {
+				url = a.BrowserURL
+			}
+			r.Assets = append(r.Assets, Asset{Name: a.Name, URL: url, Size: a.Size, SHA256: sha})
 		}
 		out = append(out, r)
 	}

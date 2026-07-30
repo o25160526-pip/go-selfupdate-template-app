@@ -89,7 +89,6 @@ func (d Downloader) downloadOnce(ctx context.Context, url, part, statePath strin
 			_ = os.Remove(statePath)
 		}
 	} else if _, err := os.Stat(part); err == nil {
-		// A partial file without state cannot safely be resumed.
 		_ = os.Remove(part)
 	}
 	if st, err := os.Stat(part); err == nil {
@@ -104,6 +103,9 @@ func (d Downloader) downloadOnce(ctx context.Context, url, part, statePath strin
 	}
 	if d.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+d.Token)
+		if strings.Contains(url, "/releases/assets/") {
+			req.Header.Set("Accept", "application/octet-stream")
+		}
 	}
 	resp, err := d.client().Do(req)
 	if err != nil {
