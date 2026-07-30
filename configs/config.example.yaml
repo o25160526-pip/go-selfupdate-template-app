@@ -1,0 +1,15 @@
+# Priority: CLI > APP_* env > this file > manifest policy > defaults.
+app_name: app
+channel: stable
+github_owner: your-org
+github_repo: your-app
+github_api: https://api.github.com
+azure_index_url: https://storage.example.net/app/index.json
+manifest_url: https://storage.example.net/app/manifest.json
+cache_dir: ~/.cache/app
+log_file: ~/.config/app/update.log
+timeout: 5m
+auto_update: false
+# Base64 raw Ed25519 public keys: current,next
+# base64 minisign public-key payloads; current key first, next rotation key second
+public_keys: []

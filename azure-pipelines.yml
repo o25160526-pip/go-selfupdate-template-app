@@ -1,0 +1,135 @@
+trigger:
+  batch: false
+  branches:
+    include: [main]
+pr:
+  branches:
+    include: ['*']
+
+variables:
+  GO_VERSION: '1.23.2'
+  TZ: UTC
+  APP_BINARY_NAME: app
+  GOMODCACHE: '$(Pipeline.Workspace)/gomod'
+  GOCACHE: '$(Pipeline.Workspace)/gocache'
+
+stages:
+  - stage: Test
+    jobs:
+      - job: test
+        pool: {vmImage: ubuntu-latest}
+        steps:
+          - task: GoTool@0
+            inputs: {version: '$(GO_VERSION)'}
+          - task: Cache@2
+            inputs:
+              key: 'gomod | "$(Agent.OS)" | go.mod'
+              path: '$(GOMODCACHE)'
+          - task: Cache@2
+            inputs:
+              key: 'gocache | "$(Agent.OS)" | go.mod'
+              path: '$(GOCACHE)'
+          - script: go test -race ./...
+          - script: go vet ./...
+          - script: ./scripts/e2e-local.sh
+
+  - stage: Build
+    dependsOn: Test
+    jobs:
+      - job: matrix
+        strategy:
+          matrix:
+            linux_amd64: {GOOS: linux, GOARCH: amd64, EXT: ''}
+            linux_arm64: {GOOS: linux, GOARCH: arm64, EXT: ''}
+            windows_amd64: {GOOS: windows, GOARCH: amd64, EXT: '.exe'}
+            windows_arm64: {GOOS: windows, GOARCH: arm64, EXT: '.exe'}
+            darwin_amd64: {GOOS: darwin, GOARCH: amd64, EXT: ''}
+            darwin_arm64: {GOOS: darwin, GOARCH: arm64, EXT: ''}
+        pool: {vmImage: ubuntu-latest}
+        steps:
+          - task: GoTool@0
+            inputs: {version: '$(GO_VERSION)'}
+          - bash: |
+              set -euo pipefail
+              git fetch --tags --force
+              COMMIT_TIME=$(git show -s --format=%cI HEAD)
+              DISPLAY=$(go run ./cmd/versiongen --format display --time "$COMMIT_TIME")
+              CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
+                -ldflags "-s -w -X github.com/your-org/go-selfupdate-template/internal/version.Display=$DISPLAY -X github.com/your-org/go-selfupdate-template/internal/version.Commit=$(Build.SourceVersion)" \
+                -o "$(Build.ArtifactStagingDirectory)/$(APP_BINARY_NAME)_$(GOOS)_$(GOARCH)$(EXT)" ./cmd/app
+              if [ -n "${APP_BINARY_PRIVATE_KEY:-}" ]; then
+                go run ./cmd/binarysign --file "$(Build.ArtifactStagingDirectory)/$(APP_BINARY_NAME)_$(GOOS)_$(GOARCH)$(EXT)"
+              fi
+            env:
+              APP_BINARY_PRIVATE_KEY: $(APP_BINARY_PRIVATE_KEY)
+          - publish: '$(Build.ArtifactStagingDirectory)'
+            artifact: 'app-$(GOOS)-$(GOARCH)'
+
+  - stage: PublishBlob
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: publish
+        pool: {vmImage: ubuntu-latest}
+        steps:
+          - checkout: self
+            fetchDepth: 0
+          - task: GoTool@0
+            inputs: {version: '$(GO_VERSION)'}
+          - download: current
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                git fetch --tags --force
+                COMMIT_TIME=$(git show -s --format=%cI HEAD)
+                DISPLAY=$(go run ./cmd/versiongen --format display --time "$COMMIT_TIME")
+                BASE="${AZURE_PUBLIC_BASE_URL%/}/releases/$DISPLAY"
+                test -n "$AZURE_PUBLIC_BASE_URL" || { echo 'AZURE_PUBLIC_BASE_URL is required'; exit 1; }
+                rm -rf upload && mkdir upload
+                find '$(Pipeline.Workspace)' -type f -name '$(APP_BINARY_NAME)_*' -exec cp {} upload/ \;
+                binaries=$(find upload -maxdepth 1 -type f -name '$(APP_BINARY_NAME)_*' ! -name '*.sig' | wc -l)
+                signatures=$(find upload -maxdepth 1 -type f -name '*.sig' | wc -l)
+                test "$binaries" -eq 6 || { echo "expected 6 binaries, got $binaries"; exit 1; }
+                test "$signatures" -eq 6 || { echo "expected 6 signatures, got $signatures"; exit 1; }
+                (cd upload && find . -maxdepth 1 -type f -name '$(APP_BINARY_NAME)_*' ! -name '*.sig' -printf '%f\0' | sort -z | xargs -0 sha256sum) > upload/checksums.txt
+                az storage blob download --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name index.json --file previous-index.json --overwrite || true
+                DISPLAY="$DISPLAY" BASE="$BASE" APP_BINARY_NAME='$(APP_BINARY_NAME)' python3 - <<'PY'
+                import hashlib, json, os, pathlib
+                upload = pathlib.Path('upload')
+                previous = {'releases': []}
+                p = pathlib.Path('previous-index.json')
+                if p.exists():
+                    try: previous = json.loads(p.read_text())
+                    except Exception: pass
+                version = os.environ['DISPLAY']
+                base = os.environ['BASE']
+                prefix = os.environ['APP_BINARY_NAME'] + '_'
+                assets = []
+                for binary in sorted(upload.glob(prefix + '*')):
+                    if binary.name.endswith('.sig') or not binary.is_file(): continue
+                    sig = upload / (binary.name + '.sig')
+                    assets.append({
+                        'name': binary.name,
+                        'url': base + '/' + binary.name,
+                        'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+                        'signature': sig.read_text().strip(),
+                        'size': binary.stat().st_size,
+                    })
+                release = {'version': version, 'draft': False, 'prerelease': False, 'assets': assets}
+                releases = [r for r in previous.get('releases', []) if r.get('version') != version]
+                releases.append(release)
+                releases.sort(key=lambda r: r.get('version', ''), reverse=True)
+                pathlib.Path('upload/index.json').write_text(json.dumps({'releases': releases[:50]}, indent=2))
+                PY
+                for file in upload/*; do
+                  name=$(basename "$file")
+                  if [ "$name" = index.json ]; then continue; fi
+                  az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name "releases/$DISPLAY/$name" --file "$file" --overwrite
+                done
+                az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name index.json --file upload/index.json --overwrite
+            env:
+              AZURE_PUBLIC_BASE_URL: $(AZURE_PUBLIC_BASE_URL)

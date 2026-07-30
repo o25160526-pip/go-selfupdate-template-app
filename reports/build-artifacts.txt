@@ -1,0 +1,10 @@
+app_linux_amd64_tray	8403952 bytes
+manifest.signed.json	680 bytes
+matrix/app_darwin_amd64	5851728 bytes
+matrix/app_darwin_arm64	5571618 bytes
+matrix/app_linux_amd64	5718168 bytes
+matrix/app_linux_arm64	5505176 bytes
+matrix/app_windows_amd64.exe	5888000 bytes
+matrix/app_windows_arm64.exe	5486080 bytes
+signing-fixture.bin	15 bytes
+signing-fixture.bin.sig	292 bytes

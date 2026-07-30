@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "expires_at": "2027-07-29T00:00:00Z",
+  "channels": {
+    "stable": {
+      "latest": "1.26.0729.1930",
+      "min_supported": "1.26.0701.0000",
+      "force_update": true,
+      "rollout_percent": 100,
+      "sources": ["github", "azure"]
+    },
+    "beta": {
+      "latest": "1.26.0729.1930",
+      "min_supported": "1.26.0701.0000",
+      "force_update": false,
+      "rollout_percent": 25,
+      "sources": ["github", "azure"]
+    }
+  },
+  "blocked": ["1.26.0715.1200"],
+  "key_id": "current",
+  "signature": "BASE64_ED25519_SIGNATURE"
+}

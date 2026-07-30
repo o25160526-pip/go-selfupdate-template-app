@@ -1,0 +1,335 @@
+
+===== go test -race ./... =====
+?   	github.com/your-org/go-selfupdate-template/cmd/app	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/binarysign	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/keygen	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/manifestsign	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/newfeature	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/templateinit	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/testupdateserver	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/versiongen	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/buildinfo	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/features	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/features/sample	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/tray	[no test files]
+ok  	github.com/your-org/go-selfupdate-template/internal/app	1.016s
+ok  	github.com/your-org/go-selfupdate-template/internal/config	(cached)
+ok  	github.com/your-org/go-selfupdate-template/internal/features/healthcheck	(cached)
+ok  	github.com/your-org/go-selfupdate-template/internal/signing	1.016s
+ok  	github.com/your-org/go-selfupdate-template/internal/ui	1.011s
+ok  	github.com/your-org/go-selfupdate-template/internal/updater	1.756s
+ok  	github.com/your-org/go-selfupdate-template/internal/version	(cached)
+
+===== go vet ./... =====
+
+===== go test -coverprofile=reports/coverage.out ./... =====
+	github.com/your-org/go-selfupdate-template/cmd/keygen		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/binarysign		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/manifestsign		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/app		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/newfeature		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/templateinit		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/testupdateserver		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/cmd/versiongen		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/internal/features		coverage: 0.0% of statements
+	github.com/your-org/go-selfupdate-template/internal/buildinfo		coverage: 0.0% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/app	0.004s	coverage: 23.2% of statements
+	github.com/your-org/go-selfupdate-template/internal/features/sample		coverage: 0.0% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/config	0.004s	coverage: 53.0% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/features/healthcheck	0.003s	coverage: 28.6% of statements
+	github.com/your-org/go-selfupdate-template/internal/tray		coverage: 0.0% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/signing	0.007s	coverage: 86.2% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/ui	0.002s	coverage: 84.2% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/updater	0.711s	coverage: 76.7% of statements
+ok  	github.com/your-org/go-selfupdate-template/internal/version	0.002s	coverage: 66.7% of statements
+
+===== go tool cover -func=reports/coverage.out =====
+github.com/your-org/go-selfupdate-template/cmd/app/main.go:8:					main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/binarysign/main.go:15:				main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/binarysign/main.go:46:				fatal			0.0%
+github.com/your-org/go-selfupdate-template/cmd/keygen/main.go:13:				main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/manifestsign/main.go:14:				main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/manifestsign/main.go:47:				fatal			0.0%
+github.com/your-org/go-selfupdate-template/cmd/newfeature/main.go:15:				main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/newfeature/main.go:56:				updateImports		0.0%
+github.com/your-org/go-selfupdate-template/cmd/newfeature/main.go:76:				mustWrite		0.0%
+github.com/your-org/go-selfupdate-template/cmd/newfeature/main.go:81:				fatal			0.0%
+github.com/your-org/go-selfupdate-template/cmd/templateinit/main.go:12:				main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/templateinit/main.go:82:				isTextFile		0.0%
+github.com/your-org/go-selfupdate-template/cmd/templateinit/main.go:94:				fatal			0.0%
+github.com/your-org/go-selfupdate-template/cmd/testupdateserver/main.go:14:			main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/versiongen/main.go:14:				main			0.0%
+github.com/your-org/go-selfupdate-template/cmd/versiongen/main.go:43:				tagExists		0.0%
+github.com/your-org/go-selfupdate-template/cmd/versiongen/main.go:49:				fatal			0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:28:				Run			21.1%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:89:				extractConfig		83.3%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:106:				usage			0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:117:				runVersion		80.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:132:				makeEngine		87.5%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:144:				openLog			71.4%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:155:				runUpdate		45.5%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:242:				displayFlags		0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:255:				runRollback		0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:272:				runChannel		0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:292:				setConfigKey		0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:308:				runCache		0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:345:				runPrefetch		0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:408:				runMenu			0.0%
+github.com/your-org/go-selfupdate-template/internal/app/app.go:439:				runTray			0.0%
+github.com/your-org/go-selfupdate-template/internal/buildinfo/buildinfo.go:14:			PublicKeys		66.7%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:32:			Defaults		75.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:45:			DefaultPath		0.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:55:			Load			58.3%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:74:			Validate		60.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:86:			ValidateForUpdate	60.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:96:			applyEnv		75.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:126:			parseYAMLSubset		51.5%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:180:			splitCSV		0.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:190:			expandHome		50.0%
+github.com/your-org/go-selfupdate-template/internal/config/config.go:197:			JSON			0.0%
+github.com/your-org/go-selfupdate-template/internal/features/features.go:28:			Register		71.4%
+github.com/your-org/go-selfupdate-template/internal/features/features.go:39:			All			80.0%
+github.com/your-org/go-selfupdate-template/internal/features/healthcheck/healthcheck.go:13:	ID			100.0%
+github.com/your-org/go-selfupdate-template/internal/features/healthcheck/healthcheck.go:14:	TrayItems		0.0%
+github.com/your-org/go-selfupdate-template/internal/features/healthcheck/healthcheck.go:17:	Commands		0.0%
+github.com/your-org/go-selfupdate-template/internal/features/healthcheck/healthcheck.go:20:	Start			0.0%
+github.com/your-org/go-selfupdate-template/internal/features/healthcheck/healthcheck.go:21:	init			100.0%
+github.com/your-org/go-selfupdate-template/internal/features/sample/sample.go:12:		ID			0.0%
+github.com/your-org/go-selfupdate-template/internal/features/sample/sample.go:13:		TrayItems		0.0%
+github.com/your-org/go-selfupdate-template/internal/features/sample/sample.go:16:		Commands		0.0%
+github.com/your-org/go-selfupdate-template/internal/features/sample/sample.go:19:		Start			0.0%
+github.com/your-org/go-selfupdate-template/internal/features/sample/sample.go:20:		init			0.0%
+github.com/your-org/go-selfupdate-template/internal/signing/minisign.go:30:			keyID			100.0%
+github.com/your-org/go-selfupdate-template/internal/signing/minisign.go:37:			EncodePublicKey		100.0%
+github.com/your-org/go-selfupdate-template/internal/signing/minisign.go:45:			PublicKeyText		100.0%
+github.com/your-org/go-selfupdate-template/internal/signing/minisign.go:52:			ParsePublicKey		83.3%
+github.com/your-org/go-selfupdate-template/internal/signing/minisign.go:82:			Sign			91.7%
+github.com/your-org/go-selfupdate-template/internal/signing/minisign.go:104:			Verify			80.8%
+github.com/your-org/go-selfupdate-template/internal/tray/tray_notray.go:7:			Run			0.0%
+github.com/your-org/go-selfupdate-template/internal/ui/menu.go:20:				Choose			89.3%
+github.com/your-org/go-selfupdate-template/internal/ui/menu.go:59:				contains		75.0%
+github.com/your-org/go-selfupdate-template/internal/ui/menu.go:68:				firstLine		66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/apply.go:15:			WithLock		86.7%
+github.com/your-org/go-selfupdate-template/internal/updater/apply.go:38:			ApplyBinary		71.4%
+github.com/your-org/go-selfupdate-template/internal/updater/apply.go:49:			Rollback		61.5%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:22:			metaPath		100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:23:			blobPath		100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:24:			Load			85.7%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:35:			save			66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:49:			Import			68.4%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:76:			Prune			85.7%
+github.com/your-org/go-selfupdate-template/internal/updater/cache.go:95:			copyFile		71.4%
+github.com/your-org/go-selfupdate-template/internal/updater/download.go:35:			client			100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/download.go:41:			Download		85.7%
+github.com/your-org/go-selfupdate-template/internal/updater/download.go:83:			downloadOnce		83.3%
+github.com/your-org/go-selfupdate-template/internal/updater/download.go:142:			verifyFile		87.5%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:51:			ParseManifest		66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:61:			Validate		64.3%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:84:			unsignedBytes		100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:85:			Verify			76.9%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:105:			Sign			85.7%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:115:			Evaluate		79.6%
+github.com/your-org/go-selfupdate-template/internal/updater/manifest.go:181:			rolloutBucket		100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/metadata_cache.go:30:		ttl			66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/metadata_cache.go:37:		Get			85.3%
+github.com/your-org/go-selfupdate-template/internal/updater/metadata_cache.go:91:		fetchMetadataResponse	74.1%
+github.com/your-org/go-selfupdate-template/internal/updater/metadata_cache.go:132:		writeAtomic		66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/metadata_cache.go:143:		writeJSONAtomic		75.0%
+github.com/your-org/go-selfupdate-template/internal/updater/resolver.go:27:			Resolve			87.7%
+github.com/your-org/go-selfupdate-template/internal/updater/source.go:58:			Error			100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source.go:67:			AssetName		75.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source.go:74:			SelectAsset		80.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source.go:83:			SelectCurrentAsset	0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source.go:87:			sortReleasesDesc	83.3%
+github.com/your-org/go-selfupdate-template/internal/updater/source_azure.go:21:			Name			100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source_azure.go:22:			client			66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/source_azure.go:28:			List			73.9%
+github.com/your-org/go-selfupdate-template/internal/updater/source_azure.go:63:			Fetch			0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source_github.go:21:		Name			100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source_github.go:22:		client			66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/source_github.go:28:		List			78.8%
+github.com/your-org/go-selfupdate-template/internal/updater/source_github.go:85:		Fetch			0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/source_http.go:10:			fetchReleaseAsset	0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:33:			Error			0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:34:			Unwrap			0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:66:			logger			66.7%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:72:			List			0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:78:			ListWithPolicy		78.6%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:100:			listFrom		82.6%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:136:			Update			73.3%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:241:			filterSources		100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:255:			fetchManifest		60.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:272:			client			100.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:278:			machineID		57.1%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:290:			ResultJSON		0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:293:			PrepareAsset		0.0%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:297:			enrichAsset		87.1%
+github.com/your-org/go-selfupdate-template/internal/updater/updater.go:345:			fetchSmall		100.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:29:			Parse			71.4%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:60:			parseTagBody		75.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:88:			validate		83.3%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:99:			MustParse		75.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:106:			String			100.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:109:			Tag			100.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:114:			Compare			100.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:127:			Compare			0.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:138:			Current			0.0%
+github.com/your-org/go-selfupdate-template/internal/version/version.go:145:			JSON			0.0%
+total:												(statements)		53.7%
+
+===== go test ./internal/version -run ^$ -fuzz=FuzzParseRoundTrip -fuzztime=2s =====
+fuzz: elapsed: 0s, gathering baseline coverage: 0/92 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 92/92 completed, now fuzzing with 5 workers
+fuzz: elapsed: 3s, execs: 104938 (34968/sec), new interesting: 33 (total: 125)
+fuzz: elapsed: 3s, execs: 104938 (0/sec), new interesting: 33 (total: 125)
+PASS
+ok  	github.com/your-org/go-selfupdate-template/internal/version	3.020s
+
+===== ./scripts/e2e-local.sh =====
+updated 1.26.0729.1900 -> 1.26.0729.2000 via github (app_linux_amd64)
+rollback completed
+updated 1.26.0729.1900 -> 1.26.0729.2000 via github (app_linux_amd64)
+E2E PASS [linux/amd64]: 1.26.0729.1900 -> 1.26.0729.2000 -> rollback -> 1.26.0729.1900 -> 1.26.0729.2000
+
+===== ./scripts/build-matrix.sh dist/matrix =====
+build windows/amd64
+build windows/arm64
+build linux/amd64
+build linux/arm64
+build darwin/amd64
+build darwin/arm64
+
+===== go test -tags tray ./... =====
+?   	github.com/your-org/go-selfupdate-template/cmd/app	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/binarysign	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/keygen	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/manifestsign	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/newfeature	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/templateinit	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/testupdateserver	[no test files]
+?   	github.com/your-org/go-selfupdate-template/cmd/versiongen	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/buildinfo	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/features	[no test files]
+?   	github.com/your-org/go-selfupdate-template/internal/features/sample	[no test files]
+ok  	github.com/your-org/go-selfupdate-template/internal/app	0.005s
+ok  	github.com/your-org/go-selfupdate-template/internal/config	(cached)
+ok  	github.com/your-org/go-selfupdate-template/internal/features/healthcheck	(cached)
+ok  	github.com/your-org/go-selfupdate-template/internal/signing	(cached)
+?   	github.com/your-org/go-selfupdate-template/internal/tray	[no test files]
+ok  	github.com/your-org/go-selfupdate-template/internal/ui	(cached)
+ok  	github.com/your-org/go-selfupdate-template/internal/updater	(cached)
+ok  	github.com/your-org/go-selfupdate-template/internal/version	(cached)
+
+===== env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags tray -trimpath -o dist/app_linux_amd64_tray ./cmd/app =====
+
+===== ./scripts/audit-plan.sh =====
+PASS file cmd/app/main.go
+PASS file internal/version/version.go
+PASS file internal/updater/updater.go
+PASS file internal/updater/source_github.go
+PASS file internal/updater/source_azure.go
+PASS file internal/updater/manifest.go
+PASS file internal/updater/cache.go
+PASS file internal/updater/metadata_cache.go
+PASS file internal/updater/apply.go
+PASS file internal/signing/minisign.go
+PASS file cmd/keygen/main.go
+PASS file internal/features/features.go
+PASS file internal/tray/tray_notray.go
+PASS file internal/tray/tray_tray.go
+PASS file internal/ui/menu.go
+PASS file configs/manifest.example.json
+PASS file .github/workflows/build.yml
+PASS file azure-pipelines.yml
+PASS file .goreleaser.yml
+PASS file docs/ADDING_A_FEATURE.md
+PASS internal/updater/source.go :: type Source interface
+PASS internal/features/features.go :: type Feature interface
+PASS internal/updater/updater.go :: ExitUpToDate.*10
+PASS internal/updater/updater.go :: ExitSourcesUnavailable.*50
+PASS internal/updater/updater.go :: Candidates
+PASS internal/updater/metadata_cache.go :: 15 \* time.Minute
+PASS internal/signing/minisign.go :: trusted comment:
+PASS cmd/binarysign/main.go :: signing.Sign
+PASS internal/buildinfo/buildinfo.go :: CurrentPublicKey
+PASS internal/buildinfo/buildinfo.go :: NextPublicKey
+PASS .github/workflows/build.yml :: cancel-in-progress: false
+PASS .github/workflows/build.yml :: smoke-update:
+PASS scripts/e2e-local.sh :: rollback
+PASS scripts/build-matrix.sh :: windows linux darwin
+PASS scripts/build-matrix.sh :: amd64 arm64
+
+===== go run ./cmd/app version --json =====
+{
+  "build_date": "unknown",
+  "commit": "dev",
+  "tag": "v1.0.1010000",
+  "version": "1.00.0101.0000"
+}
+
+===== go run ./cmd/app features =====
+healthcheck
+sample
+
+===== go run ./cmd/binarysign --file dist/signing-fixture.bin =====
+dist/signing-fixture.bin.sig
+
+===== go run ./cmd/manifestsign --in configs/manifest.example.json --out dist/manifest.signed.json --key-id current =====
+dist/manifest.signed.json
+SIGNING_CLI PASS minisign_lines=4 manifest_signature=present
+YAML PASS .github/workflows/build.yml
+YAML PASS azure-pipelines.yml
+YAML PASS .goreleaser.yml
+
+===== bash -n /tmp/github-runs-final.sh =====
+
+===== bash -n /tmp/azure-inline-final.sh =====
+
+===== sh -n scripts/audit-plan.sh =====
+
+===== sh -n scripts/build-matrix.sh =====
+
+===== sh -n scripts/e2e-local.sh =====
+
+===== sh -n scripts/gen-version.sh =====
+
+===== sh -n scripts/init-template.sh =====
+VERSION_COLLISION PASS first=v1.26.7291656 next=v1.26.7291657
+Initialized app=selfdemo module=example.com/acme/selfdemo (30 files changed)
+?   	example.com/acme/selfdemo/cmd/app	[no test files]
+?   	example.com/acme/selfdemo/cmd/binarysign	[no test files]
+?   	example.com/acme/selfdemo/cmd/keygen	[no test files]
+?   	example.com/acme/selfdemo/cmd/manifestsign	[no test files]
+?   	example.com/acme/selfdemo/cmd/newfeature	[no test files]
+?   	example.com/acme/selfdemo/cmd/templateinit	[no test files]
+?   	example.com/acme/selfdemo/cmd/testupdateserver	[no test files]
+?   	example.com/acme/selfdemo/cmd/versiongen	[no test files]
+?   	example.com/acme/selfdemo/internal/buildinfo	[no test files]
+?   	example.com/acme/selfdemo/internal/features	[no test files]
+?   	example.com/acme/selfdemo/internal/features/sample	[no test files]
+ok  	example.com/acme/selfdemo/internal/app	0.007s
+ok  	example.com/acme/selfdemo/internal/config	0.003s
+ok  	example.com/acme/selfdemo/internal/features/healthcheck	0.002s
+?   	example.com/acme/selfdemo/internal/tray	[no test files]
+ok  	example.com/acme/selfdemo/internal/signing	0.004s
+ok  	example.com/acme/selfdemo/internal/ui	0.005s
+ok  	example.com/acme/selfdemo/internal/updater	0.713s
+ok  	example.com/acme/selfdemo/internal/version	0.002s
+build windows/amd64
+build windows/arm64
+build linux/amd64
+build linux/arm64
+build darwin/amd64
+build darwin/arm64
+TEMPLATE_INIT PASS app=selfdemo module=example.com/acme/selfdemo targets=6
+app_linux_amd64_tray	8403952 bytes
+manifest.signed.json	680 bytes
+matrix/app_darwin_amd64	5851728 bytes
+matrix/app_darwin_arm64	5571618 bytes
+matrix/app_linux_amd64	5718168 bytes
+matrix/app_linux_arm64	5505176 bytes
+matrix/app_windows_amd64.exe	5888000 bytes
+matrix/app_windows_arm64.exe	5486080 bytes
+signing-fixture.bin	15 bytes
+signing-fixture.bin.sig	292 bytes
+FINAL_GATE_PASS

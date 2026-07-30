@@ -1,0 +1,7 @@
+Go Self-Update Template App
+Copyright 2026 Template Authors
+
+The local module under third_party/minio-selfupdate contains a source-compatible
+subset derived from github.com/minio/selfupdate v0.6.0, licensed under the
+Apache License 2.0. Its upstream copyright and license terms are preserved by
+the Apache-2.0 license included in that directory.
