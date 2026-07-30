@@ -1,0 +1,239 @@
+name: build-release-update-gate
+
+on:
+  push:
+    branches: [main, 'release/**']
+    paths-ignore: ['**.md', 'docs/**', '.github/ISSUE_TEMPLATE/**']
+  pull_request:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: '1.23.2'
+  GORELEASER_VERSION: 'v2.17.1'
+  TZ: UTC
+  APP_BINARY_NAME: app
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      display: ${{ steps.version.outputs.display }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v6
+        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit_time=$(git show -s --format=%cI HEAD)
+          eval "$(go run ./cmd/versiongen --format both --time "$commit_time")"
+          echo "display=$DISPLAY" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: ./scripts/e2e-local.sh
+
+  build:
+    needs: [version, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows, linux, darwin]
+        arch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
+      - name: Build target
+        shell: bash
+        env:
+          APP_DISPLAY_VERSION: ${{ needs.version.outputs.display }}
+          APP_CURRENT_PUBLIC_KEY: ${{ secrets.APP_CURRENT_PUBLIC_KEY }}
+          APP_NEXT_PUBLIC_KEY: ${{ secrets.APP_NEXT_PUBLIC_KEY }}
+          APP_BINARY_PRIVATE_KEY: ${{ secrets.APP_BINARY_PRIVATE_KEY }}
+          APP_MANIFEST_PRIVATE_KEY: ${{ secrets.APP_MANIFEST_PRIVATE_KEY }}
+          APP_MANIFEST_URL: ${{ vars.APP_MANIFEST_URL }}
+        run: |
+          set -euo pipefail
+          ext=''; [ '${{ matrix.os }}' != windows ] || ext='.exe'
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS='${{ matrix.os }}' GOARCH='${{ matrix.arch }}' go build -trimpath \
+            -ldflags "-s -w \
+            -X github.com/your-org/go-selfupdate-template/internal/version.Display=${APP_DISPLAY_VERSION} \
+            -X github.com/your-org/go-selfupdate-template/internal/version.Commit=${GITHUB_SHA} \
+            -X github.com/your-org/go-selfupdate-template/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            -X github.com/your-org/go-selfupdate-template/internal/buildinfo.CurrentPublicKey=${APP_CURRENT_PUBLIC_KEY} \
+            -X github.com/your-org/go-selfupdate-template/internal/buildinfo.NextPublicKey=${APP_NEXT_PUBLIC_KEY} \
+            -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultManifestURL=${APP_MANIFEST_URL} \
+            -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubOwner=${GITHUB_REPOSITORY_OWNER} \
+            -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubRepo=${GITHUB_REPOSITORY#*/}" \
+            -o "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}" ./cmd/app
+          key="${APP_BINARY_PRIVATE_KEY:-${APP_MANIFEST_PRIVATE_KEY:-}}"
+          if [ -n "$key" ]; then
+            APP_BINARY_PRIVATE_KEY="$key" go run ./cmd/binarysign --file "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  draft:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - uses: actions/download-artifact@v5
+        with: {path: dist, merge-multiple: true}
+      - name: Create immutable draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          DISPLAY: ${{ needs.version.outputs.display }}
+          APP_BINARY_PRIVATE_KEY: ${{ secrets.APP_BINARY_PRIVATE_KEY }}
+          APP_MANIFEST_PRIVATE_KEY: ${{ secrets.APP_MANIFEST_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          key="${APP_BINARY_PRIVATE_KEY:-${APP_MANIFEST_PRIVATE_KEY:-}}"
+          test -n "$key" || { echo 'APP_BINARY_PRIVATE_KEY or APP_MANIFEST_PRIVATE_KEY is required'; exit 1; }
+          test -n "${{ secrets.APP_CURRENT_PUBLIC_KEY }}" || { echo 'APP_CURRENT_PUBLIC_KEY is required'; exit 1; }
+          unsigned=$(find dist -type f ! -name '*.sig' | wc -l)
+          signatures=$(find dist -type f -name '*.sig' | wc -l)
+          test "$unsigned" -eq "$signatures" || { echo "missing binary signatures: binaries=$unsigned signatures=$signatures"; exit 1; }
+          find dist -type f ! -name '*.sig' -print0 | sort -z | xargs -0 sha256sum > dist/checksums.txt
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          gh release create "$TAG" dist/* --draft --title "$DISPLAY" --generate-notes --verify-tag
+
+  smoke-update:
+    needs: [version, draft]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux
+            arch: amd64
+            ext: ''
+          - runner: windows-latest
+            os: windows
+            arch: amd64
+            ext: '.exe'
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+            ext: ''
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
+      - name: Locate previous published release
+        id: previous
+        shell: bash
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          current='${{ needs.version.outputs.tag }}'
+          previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=20" --jq ".[] | select(.draft == false and .tag_name != \"$current\") | .tag_name" | head -n1 || true)
+          echo "tag=$previous" >> "$GITHUB_OUTPUT"
+      - name: First-release real upgrade fallback
+        if: steps.previous.outputs.tag == ''
+        shell: bash
+        run: ./scripts/e2e-local.sh
+      - name: Download previous binary
+        if: steps.previous.outputs.tag != ''
+        shell: bash
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          mkdir smoke
+          gh release download '${{ steps.previous.outputs.tag }}' --pattern '${{ env.APP_BINARY_NAME }}_${{ matrix.os }}_${{ matrix.arch }}${{ matrix.ext }}' --dir smoke
+          mv 'smoke/${{ env.APP_BINARY_NAME }}_${{ matrix.os }}_${{ matrix.arch }}${{ matrix.ext }}' 'smoke/app${{ matrix.ext }}'
+          chmod +x 'smoke/app${{ matrix.ext }}' || true
+      - name: Upgrade draft, rollback, upgrade again
+        if: steps.previous.outputs.tag != ''
+        shell: bash
+        env:
+          APP_GITHUB_OWNER: ${{ github.repository_owner }}
+          APP_GITHUB_REPO: ${{ github.event.repository.name }}
+          APP_CHANNEL: internal
+          APP_UPDATE_TOKEN: ${{ github.token }}
+          APP_CACHE_DIR: ${{ runner.temp }}/app-cache
+          APP_LOG_FILE: ${{ runner.temp }}/app-update.log
+          APP_MANIFEST_URL: ''
+        run: |
+          set -euo pipefail
+          bin='smoke/app${{ matrix.ext }}'
+          run_update() {
+            set +e
+            "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
+            code=$?
+            set -e
+            if [ "$code" -eq 50 ]; then
+              "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
+            else
+              return "$code"
+            fi
+          }
+          run_update
+          test "$("$bin" version)" = '${{ needs.version.outputs.display }}'
+          "$bin" rollback --target "$PWD/$bin"
+          test "$("$bin" version)" != '${{ needs.version.outputs.display }}'
+          run_update
+          test "$("$bin" version)" = '${{ needs.version.outputs.display }}'
+
+  promote:
+    needs: [version, smoke-update]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
+      - name: Sign policy manifest
+        env:
+          APP_MANIFEST_PRIVATE_KEY: ${{ secrets.APP_MANIFEST_PRIVATE_KEY }}
+          DISPLAY: ${{ needs.version.outputs.display }}
+        run: |
+          set -euo pipefail
+          test -n "$APP_MANIFEST_PRIVATE_KEY" || { echo 'APP_MANIFEST_PRIVATE_KEY secret is required'; exit 1; }
+          python3 - <<'PY'
+          import json, os
+          p='configs/manifest.example.json'
+          d=json.load(open(p))
+          d['channels']['stable']['latest']=os.environ['DISPLAY']
+          d['signature']=''
+          json.dump(d,open('manifest.release.json','w'),indent=2)
+          PY
+          go run ./cmd/manifestsign --in manifest.release.json --out manifest.signed.json --key-id current
+      - name: Attach manifest and publish draft
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          gh release upload '${{ needs.version.outputs.tag }}' manifest.signed.json --clobber
+          gh release edit '${{ needs.version.outputs.tag }}' --draft=false
