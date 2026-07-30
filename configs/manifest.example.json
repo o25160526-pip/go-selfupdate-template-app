@@ -3,14 +3,14 @@
   "expires_at": "2027-07-29T00:00:00Z",
   "channels": {
     "stable": {
-      "latest": "1.26.0729.1930",
+      "latest": "1.26.0730.0139",
       "min_supported": "1.26.0701.0000",
       "force_update": true,
       "rollout_percent": 100,
       "sources": ["github", "azure"]
     },
     "beta": {
-      "latest": "1.26.0729.1930",
+      "latest": "1.26.0730.0139",
       "min_supported": "1.26.0701.0000",
       "force_update": false,
       "rollout_percent": 25,
