@@ -170,18 +170,21 @@ jobs:
         run: |
           set -euo pipefail
           for i in $(seq 1 30); do
-            if count=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '.assets | length' 2>/dev/null); then
-              :
+            release_json=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\")" 2>/dev/null || true)
+            if [ -n "$release_json" ]; then
+              count=$(printf '%s\n' "$release_json" | jq '.assets | length')
+              draft=$(printf '%s\n' "$release_json" | jq -r '.draft')
+              echo "draft asset count: $count (draft=$draft)"
+              if [ "$draft" = true ] && [ "$count" -ge 12 ]; then
+                exit 0
+              fi
             else
               count=0
-            fi
-            echo "draft asset count: $count"
-            if [ "$count" -ge 12 ]; then
-              exit 0
+              echo "draft asset count: $count (release not visible yet)"
             fi
             sleep 2
           done
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '{draft,tag_name,assets:[.assets[].name]}'
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | {draft,tag_name,assets:[.assets[].name]}"
           exit 1
       - name: First-release real upgrade fallback
         if: steps.previous.outputs.tag == ''
