@@ -221,7 +221,7 @@ jobs:
           old="$($bin version)"
           echo "version_before=$old" | tee -a "$GITHUB_STEP_SUMMARY"
           set +e
-          "$bin" update --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m 2>&1 | tee "$RUNNER_TEMP/update-output.log"
+          "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m 2>&1 | tee "$RUNNER_TEMP/update-output.log"
           status=${PIPESTATUS[0]}
           set -e
           cat "$APP_LOG_FILE" 2>/dev/null || true
@@ -232,7 +232,7 @@ jobs:
           test "$old" != "$new"
           "$bin" rollback --target "$PWD/$bin"
           test "$($bin version)" = "$old"
-          "$bin" update --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
+          "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
           test "$($bin version)" = '${{ needs.version.outputs.display }}'
 
   promote:
