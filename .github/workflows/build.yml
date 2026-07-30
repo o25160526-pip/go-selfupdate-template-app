@@ -43,12 +43,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with: {fetch-depth: 1}
       - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
-          key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}-${{ hashFiles('**/*.go', 'scripts/*.sh') }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}-
       - run: go test -race ./...
       - run: go vet ./...
       - run: sh ./scripts/audit-plan.sh
@@ -64,8 +67,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with: {fetch-depth: 1}
       - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('go.sum', 'go.mod') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('go.sum', 'go.mod') }}-
       - name: Build and sign target
         shell: bash
         env:
@@ -106,7 +116,7 @@ jobs:
       tag: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+        with: {fetch-depth: 1}
       - uses: actions/download-artifact@v8
         with: {path: dist, merge-multiple: true}
       - name: Create signed draft release
@@ -149,9 +159,6 @@ jobs:
             ext: ''
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - name: Locate previous published release
         id: previous
         shell: bash
@@ -161,11 +168,13 @@ jobs:
           current='${{ needs.version.outputs.tag }}'
           previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.draft == false and .tag_name != \"$current\") | .tag_name" | head -n1 || true)
           echo "tag=$previous" >> "$GITHUB_OUTPUT"
-          if [ -n "$previous" ]; then
-            echo "previous_tag=$previous" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No published release exists yet. Running bootstrap verification; real upgrade smoke tests start from the next release." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          if [ -n "$previous" ]; then echo "previous_tag=$previous" >> "$GITHUB_STEP_SUMMARY"; else echo "No published release exists yet. Running bootstrap verification." >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/checkout@v7
+        if: steps.previous.outputs.tag == ''
+        with: {fetch-depth: 1}
+      - uses: actions/setup-go@v7
+        if: steps.previous.outputs.tag == ''
+        with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - name: Wait for current draft assets
         if: steps.previous.outputs.tag != ''
         shell: bash
@@ -174,22 +183,16 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 30); do
+          for i in $(seq 1 15); do
             release_json=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\")" 2>/dev/null || true)
             if [ -n "$release_json" ]; then
               count=$(printf '%s\n' "$release_json" | jq '.assets | length')
               draft=$(printf '%s\n' "$release_json" | jq -r '.draft')
               echo "draft asset count: $count (draft=$draft)"
-              if [ "$draft" = true ] && [ "$count" -ge 12 ]; then
-                exit 0
-              fi
-            else
-              count=0
-              echo "draft asset count: $count (release not visible yet)"
-            fi
+              if [ "$draft" = true ] && [ "$count" -ge 12 ]; then exit 0; fi
+            else echo "draft not visible yet"; fi
             sleep 2
           done
-          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | {draft,tag_name,assets:[.assets[].name]}"
           exit 1
       - name: Bootstrap verification (first release)
         if: steps.previous.outputs.tag == ''
@@ -207,7 +210,6 @@ jobs:
           test -s "smoke/$asset"
           mv "smoke/$asset" "smoke/app${{ matrix.ext }}"
           chmod +x "smoke/app${{ matrix.ext }}" || true
-          echo "Downloaded previous asset: $asset" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upgrade draft and verify exact version
         if: steps.previous.outputs.tag != ''
         shell: bash
@@ -224,7 +226,6 @@ jobs:
           set -euo pipefail
           bin='smoke/app${{ matrix.ext }}'
           old="$($bin version)"
-          echo "version_before=$old" | tee -a "$GITHUB_STEP_SUMMARY"
           set +e
           "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m 2>&1 | tee "$RUNNER_TEMP/update-output.log"
           status=${PIPESTATUS[0]}
@@ -232,7 +233,6 @@ jobs:
           cat "$APP_LOG_FILE" 2>/dev/null || true
           test "$status" -eq 0 || test "$status" -eq 10
           new="$($bin version)"
-          echo "version_after=$new" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$new" = '${{ needs.version.outputs.display }}'
           test "$old" != "$new"
           "$bin" rollback --target "$PWD/$bin"
@@ -245,6 +245,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with: {fetch-depth: 1}
       - uses: actions/setup-go@v7
         with: {go-version: '${{ env.GO_VERSION }}', cache: true}
       - name: Sign policy manifest
@@ -273,7 +274,6 @@ jobs:
     needs: [version, promote]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
       - name: Download the published Windows release
         shell: pwsh
         env:
@@ -286,10 +286,10 @@ jobs:
           $asset = "${{ env.APP_BINARY_NAME }}_windows_amd64.exe"
           gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern $asset --dir reports
           $path = Join-Path reports $asset
-          if (-not (Test-Path $path)) { throw "Published asset not found: $asset" }
+          if (-not (Test-Path $path)) { throw "Published binary not found: $asset" }
           $version = (& $path version 2>&1 | Out-String).Trim()
           $status = $LASTEXITCODE
-          @("release_tag=$env:TAG","asset=$asset","version=$version","exit_code=$status","download_source=GitHub Release after publish") | Set-Content reports/post-publish-$env:TAG.log
+          @("release_tag=$env:TAG","asset=$asset","version=$version","exit_code=$status") | Set-Content reports/post-publish-$env:TAG.log
           if ($status -ne 0) { throw "Published binary exited with $status" }
           if ($version -ne $env:EXPECTED) { throw "Published version '$version' != expected '$env:EXPECTED'" }
           Get-Content reports/post-publish-$env:TAG.log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
