@@ -129,29 +129,6 @@ func runVersion(args []string, out, errOut io.Writer) int {
 	}
 	return 0
 }
-func makeEngine(cfg config.Config, log io.Writer) updater.Engine {
-	var sources []updater.Source
-	metadata := updater.MetadataCache{Root: cfg.CacheDir, TTL: 15 * time.Minute}
-	if cfg.GitHubOwner != "" && cfg.GitHubRepo != "" {
-		sources = append(sources, &updater.GitHubSource{Owner: cfg.GitHubOwner, Repo: cfg.GitHubRepo, APIBase: cfg.GitHubAPI, Client: http.DefaultClient, Metadata: metadata})
-	}
-	if cfg.AzureIndexURL != "" {
-		sources = append(sources, &updater.AzureBlobSource{IndexURL: cfg.AzureIndexURL, Client: http.DefaultClient, Metadata: metadata})
-	}
-	exe, _ := os.Executable()
-	return updater.Engine{AppName: cfg.AppName, CurrentVersion: appversion.Current().String(), TargetPath: exe, Channel: cfg.Channel, Token: cfg.UpdateToken, ManifestURL: cfg.ManifestURL, PublicKeys: cfg.PublicKeys, Sources: sources, Cache: updater.Cache{Root: cfg.CacheDir}, Metadata: metadata, Client: http.DefaultClient, Log: log}
-}
-func openLog(path string) (io.WriteCloser, io.Writer) {
-	if path == "" {
-		return nil, io.Discard
-	}
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return nil, io.Discard
-	}
-	return f, f
-}
 func runUpdate(cfg config.Config, args []string, in io.Reader, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(errOut)
@@ -205,7 +182,9 @@ func runUpdate(cfg config.Config, args []string, in io.Reader, out, errOut io.Wr
 		return 0
 	}
 	var confirm func(updater.UpdateResult) bool
-	if !*silent && !*dry {
+	// CI runners do not have a terminal. Never block waiting for input there;
+	// retain the confirmation prompt for real interactive local use.
+	if !*silent && !*dry && isInteractiveInput(in) {
 		confirm = func(plan updater.UpdateResult) bool {
 			fmt.Fprintf(out, "Update %s from %s to %s via %s? [y/N]: ", cfg.Channel, plan.From, plan.To, plan.Source)
 			var answer string
@@ -239,6 +218,15 @@ func runUpdate(cfg config.Config, args []string, in io.Reader, out, errOut io.Wr
 	}
 	return 0
 }
+
+func isInteractiveInput(in io.Reader) bool {
+	if in != os.Stdin {
+		return false
+	}
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func displayFlags(r updater.Release) string {
 	var f []string
 	if r.Draft {
@@ -251,6 +239,29 @@ func displayFlags(r updater.Release) string {
 		return "stable"
 	}
 	return strings.Join(f, ",")
+}
+func makeEngine(cfg config.Config, log io.Writer) updater.Engine {
+	var sources []updater.Source
+	metadata := updater.MetadataCache{Root: cfg.CacheDir, TTL: 15 * time.Minute}
+	if cfg.GitHubOwner != "" && cfg.GitHubRepo != "" {
+		sources = append(sources, &updater.GitHubSource{Owner: cfg.GitHubOwner, Repo: cfg.GitHubRepo, APIBase: cfg.GitHubAPI, Client: http.DefaultClient, Metadata: metadata})
+	}
+	if cfg.AzureIndexURL != "" {
+		sources = append(sources, &updater.AzureBlobSource{IndexURL: cfg.AzureIndexURL, Client: http.DefaultClient, Metadata: metadata})
+	}
+	exe, _ := os.Executable()
+	return updater.Engine{AppName: cfg.AppName, CurrentVersion: appversion.Current().String(), TargetPath: exe, Channel: cfg.Channel, Token: cfg.UpdateToken, ManifestURL: cfg.ManifestURL, PublicKeys: cfg.PublicKeys, Sources: sources, Cache: updater.Cache{Root: cfg.CacheDir}, Metadata: metadata, Client: http.DefaultClient, Log: log}
+}
+func openLog(path string) (io.WriteCloser, io.Writer) {
+	if path == "" {
+		return nil, io.Discard
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, io.Discard
+	}
+	return f, f
 }
 func runRollback(cfg config.Config, args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
