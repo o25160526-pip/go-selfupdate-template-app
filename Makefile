@@ -7,21 +7,21 @@ test:
 verify:
 	go test -race ./...
 	go vet ./...
-	./scripts/e2e-local.sh
+	sh ./scripts/e2e-local.sh
 
 build:
 	go build -trimpath -o dist/app ./cmd/app
 
 build-matrix:
-	./scripts/build-matrix.sh
+	sh ./scripts/build-matrix.sh
 
 e2e:
-	./scripts/e2e-local.sh
+	sh ./scripts/e2e-local.sh
 
 init:
 	@test -n "$(APP)" || (echo "APP required" >&2; exit 2)
 	@test -n "$(MODULE)" || (echo "MODULE required" >&2; exit 2)
-	APP="$(APP)" MODULE="$(MODULE)" ./scripts/init-template.sh
+	APP="$(APP)" MODULE="$(MODULE)" sh ./scripts/init-template.sh
 
 new-feature:
 	@test -n "$(NAME)" || (echo "NAME required" >&2; exit 2)

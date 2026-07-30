@@ -31,7 +31,7 @@ stages:
               path: '$(GOCACHE)'
           - script: go test -race ./...
           - script: go vet ./...
-          - script: ./scripts/e2e-local.sh
+          - script: sh ./scripts/e2e-local.sh
 
   - stage: Build
     dependsOn: Test

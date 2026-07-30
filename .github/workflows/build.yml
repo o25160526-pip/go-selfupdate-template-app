@@ -52,7 +52,7 @@ jobs:
           key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', 'go.mod') }}
       - run: go test -race ./...
       - run: go vet ./...
-      - run: ./scripts/e2e-local.sh
+      - run: sh ./scripts/e2e-local.sh
 
   build:
     needs: [version, test]
@@ -166,7 +166,7 @@ jobs:
       - name: First-release real upgrade fallback
         if: steps.previous.outputs.tag == ''
         shell: bash
-        run: ./scripts/e2e-local.sh
+        run: sh ./scripts/e2e-local.sh
       - name: Download previous binary
         if: steps.previous.outputs.tag != ''
         shell: bash
