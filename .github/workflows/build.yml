@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  group: release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   GO_VERSION: '1.23.2'
@@ -91,8 +91,7 @@ jobs:
             -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubOwner=${GITHUB_REPOSITORY_OWNER} \
             -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubRepo=${GITHUB_REPOSITORY#*/}" \
             -o "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}" ./cmd/app
-          APP_BINARY_PRIVATE_KEY="${APP_BINARY_PRIVATE_KEY:-${APP_MANIFEST_PRIVATE_KEY:-}}" \
-            go run ./cmd/binarysign --file "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}"
+          APP_BINARY_PRIVATE_KEY="${APP_BINARY_PRIVATE_KEY:-${APP_MANIFEST_PRIVATE_KEY:-}}" go run ./cmd/binarysign --file "dist/${APP_BINARY_NAME}_${{ matrix.os }}_${{ matrix.arch }}${ext}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
@@ -124,7 +123,7 @@ jobs:
           . ./scripts/ci-keys.sh
           unsigned=$(find dist -type f ! -name '*.sig' | wc -l)
           signatures=$(find dist -type f -name '*.sig' | wc -l)
-          test "$unsigned" -eq "$signatures" || { echo "missing binary signatures: binaries=$unsigned signatures=$signatures"; exit 1; }
+          test "$unsigned" -eq "$signatures"
           find dist -type f ! -name '*.sig' -print0 | sort -z | xargs -0 sha256sum > dist/checksums.txt
           git tag "$TAG" "$GITHUB_SHA"
           git push origin "$TAG"
@@ -161,17 +160,28 @@ jobs:
           set -euo pipefail
           current='${{ needs.version.outputs.tag }}'
           previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.draft == false and .tag_name != \"$current\") | .tag_name" | head -n1 || true)
-          test -n "$previous" || echo "No prior published release, using the real local-chain fallback on $RUNNER_OS"
           echo "tag=$previous" >> "$GITHUB_OUTPUT"
           echo "previous_tag=$previous" >> "$GITHUB_STEP_SUMMARY"
+      - name: Wait for current draft assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            count=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '.assets | length' 2>/dev/null || echo 0)
+            echo "draft asset count: $count"
+            [ "$count" -ge 12 ] && exit 0
+            sleep 2
+          done
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '{draft,tag_name,assets:[.assets[].name]}'
+          exit 1
       - name: First-release real upgrade fallback
         if: steps.previous.outputs.tag == ''
         shell: bash
-        run: |
-          set -euo pipefail
-          sh ./scripts/e2e-local.sh | tee "$RUNNER_TEMP/e2e-local-${{ matrix.os }}.log"
-          grep -F "E2E PASS" "$RUNNER_TEMP/e2e-local-${{ matrix.os }}.log"
-      - name: Download previous Windows/Linux/macOS binary
+        run: sh ./scripts/e2e-local.sh | tee "$RUNNER_TEMP/e2e-local-${{ matrix.os }}.log"
+      - name: Download previous binary
         if: steps.previous.outputs.tag != ''
         shell: bash
         env: {GH_TOKEN: '${{ github.token }}'}
@@ -190,6 +200,7 @@ jobs:
         env:
           APP_GITHUB_OWNER: ${{ github.repository_owner }}
           APP_GITHUB_REPO: ${{ github.event.repository.name }}
+          APP_GITHUB_API: https://api.github.com
           APP_CHANNEL: internal
           APP_UPDATE_TOKEN: ${{ github.token }}
           APP_CACHE_DIR: ${{ runner.temp }}/app-cache
@@ -201,9 +212,10 @@ jobs:
           old="$($bin version)"
           echo "version_before=$old" | tee -a "$GITHUB_STEP_SUMMARY"
           set +e
-          "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
-          status=$?
+          "$bin" update --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m 2>&1 | tee "$RUNNER_TEMP/update-output.log"
+          status=${PIPESTATUS[0]}
           set -e
+          cat "$APP_LOG_FILE" 2>/dev/null || true
           test "$status" -eq 0 || test "$status" -eq 10
           new="$($bin version)"
           echo "version_after=$new" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -211,7 +223,7 @@ jobs:
           test "$old" != "$new"
           "$bin" rollback --target "$PWD/$bin"
           test "$($bin version)" = "$old"
-          "$bin" update --silent --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
+          "$bin" update --channel internal --version '${{ needs.version.outputs.display }}' --timeout 5m
           test "$($bin version)" = '${{ needs.version.outputs.display }}'
 
   promote:
@@ -263,13 +275,7 @@ jobs:
           if (-not (Test-Path $path)) { throw "Published asset not found: $asset" }
           $version = (& $path version 2>&1 | Out-String).Trim()
           $status = $LASTEXITCODE
-          @(
-            "release_tag=$env:TAG"
-            "asset=$asset"
-            "version=$version"
-            "exit_code=$status"
-            "download_source=GitHub Release after publish"
-          ) | Set-Content reports/post-publish-$env:TAG.log
+          @("release_tag=$env:TAG","asset=$asset","version=$version","exit_code=$status","download_source=GitHub Release after publish") | Set-Content reports/post-publish-$env:TAG.log
           if ($status -ne 0) { throw "Published binary exited with $status" }
           if ($version -ne $env:EXPECTED) { throw "Published version '$version' != expected '$env:EXPECTED'" }
           Get-Content reports/post-publish-$env:TAG.log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
