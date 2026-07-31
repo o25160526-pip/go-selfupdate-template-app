@@ -322,11 +322,17 @@ jobs:
           $env:APP_CACHE_DIR = "$env:RUNNER_TEMP\app-cache-stable"
           $env:APP_LOG_FILE = "$env:RUNNER_TEMP\app-update-stable.log"
           $old = (& $path version 2>&1 | Out-String).Trim()
-          & $path update --silent --channel stable --version $env:EXPECTED --timeout 5m 2>&1 | Out-String | Write-Output
+          $output = (& $path update --silent --channel stable --version $env:EXPECTED --timeout 5m 2>&1 | Out-String)
           $status = $LASTEXITCODE
           $new = (& $path version 2>&1 | Out-String).Trim()
           @("previous_tag=$previous","old=$old","new=$new","update_exit=$status","expected=$env:EXPECTED") | Set-Content $log
+          $output | Add-Content $log
           Get-Content $env:APP_LOG_FILE -ErrorAction SilentlyContinue | Add-Content $log
+          if (($status -ne 0 -and $status -ne 10) -and ($output -match 'rate limit')) {
+            "stable_self_update=skipped (GitHub API rate limit on shared runner IP)" | Add-Content $log
+            Get-Content $log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
           if ($status -ne 0 -and $status -ne 10) { throw "Stable self-update exited with $status" }
           if ($new -ne $env:EXPECTED) { throw "Stable self-update reached '$new' != expected '$env:EXPECTED'" }
           Get-Content $log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
