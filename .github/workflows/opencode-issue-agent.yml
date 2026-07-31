@@ -257,6 +257,8 @@ jobs:
         if: steps.route.outputs.skip != 'true'
         uses: anomalyco/opencode/github@latest
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           model: opencode/${{ steps.route.outputs.model_id }}
           prompt: ${{ steps.context.outputs.prompt }}
@@ -272,6 +274,8 @@ jobs:
         if: steps.route.outputs.skip != 'true' && steps.agent1.outcome == 'failure'
         uses: anomalyco/opencode/github@latest
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           model: opencode/${{ steps.route.outputs.model_id }}
           prompt: ${{ steps.context.outputs.prompt }}
@@ -355,6 +359,8 @@ jobs:
           MODEL_FALLBACK: ${{ steps.route.outputs.model_fallback }}
           NEEDS_HUMAN: ${{ steps.route.outputs.needs_human }}
           COMMAND: ${{ steps.route.outputs.command }}
+          AGENT1_OUTCOME: ${{ steps.agent1.outcome }}
+          AGENT2_OUTCOME: ${{ steps.agent2.outcome }}
           REVERTED_COUNT: ${{ steps.guardrail.outputs.reverted_count }}
           REVERTED_ALL: ${{ steps.guardrail.outputs.reverted_all }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -365,7 +371,7 @@ jobs:
             const repo = context.repo.repo;
             const num = issue.number;
             const command = process.env.COMMAND;
-            const agentOk = steps.agent1.outcome === 'success' || steps.agent2.outcome === 'success';
+            const agentOk = process.env.AGENT1_OUTCOME === 'success' || process.env.AGENT2_OUTCOME === 'success';
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
 
             const setStatus = async (name) => {
