@@ -303,7 +303,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force reports, stable | Out-Null
           $log = "reports/post-publish-stable-$env:TAG.log"
-          $previous = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.draft == false and .tag_name != \"$env:TAG\") | .tag_name" | Select-Object -First 1
+          $previous = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --jq ('.[] | select(.draft == false and .tag_name != "' + $env:TAG + '") | .tag_name') | Select-Object -First 1
           if (-not $previous) {
             "stable_self_update=skipped (no previous release)" | Add-Content $log
             Get-Content $log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
