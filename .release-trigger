@@ -1,5 +1,5 @@
 Release flow verification trigger.
 
-Previous release: v1.26.7300325
-Purpose: verify upgrade from the first published release through the full CI smoke-update gate.
-Triggered: 2026-07-30T03:29:00Z
+Previous release: v1.26.7310335
+Purpose: re-run full pipeline after both download fixes and the stable-channel no-token smoke test; watch for GitHub API rate limit on shared runner IPs.
+Triggered: 2026-07-31T03:40:00Z
