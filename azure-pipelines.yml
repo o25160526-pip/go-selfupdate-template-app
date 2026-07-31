@@ -141,7 +141,7 @@ stages:
               APP_CURRENT_PUBLIC_KEY: $(APP_CURRENT_PUBLIC_KEY)
               APP_NEXT_PUBLIC_KEY: $(APP_NEXT_PUBLIC_KEY)
 
-  - stage: PublishBlob
+  - stage: Publish
     dependsOn: [Build, SmokeUpdate]
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
@@ -153,27 +153,96 @@ stages:
           - task: GoTool@0
             inputs: {version: '$(GO_VERSION)'}
           - download: current
+          - bash: |
+              set -euo pipefail
+              pick() { case "${1:-}" in ""|'$('*) printf '';; *) printf '%s' "$1";; esac; }
+              git fetch --tags --force
+              COMMIT_TIME=$(git show -s --format=%cI HEAD)
+              DISPLAY=$(go run ./cmd/versiongen --format display --time "$COMMIT_TIME")
+              TAG=$(go run ./cmd/versiongen --format tag --time "$COMMIT_TIME")
+              echo "##vso[task.setvariable variable=RELEASE_DISPLAY]$DISPLAY"
+              echo "##vso[task.setvariable variable=UPACK_VERSION]${TAG#v}"
+              echo "##vso[task.setvariable variable=UPACK_NAME]$(APP_BINARY_NAME)-release"
+              rm -rf release && mkdir release
+              find '$(Pipeline.Workspace)' -type f -name '$(APP_BINARY_NAME)_*' -exec cp {} release/ \;
+              binaries=$(find release -maxdepth 1 -type f -name '$(APP_BINARY_NAME)_*' ! -name '*.sig' | wc -l)
+              signatures=$(find release -maxdepth 1 -type f -name '*.sig' | wc -l)
+              test "$binaries" -eq 6 || { echo "expected 6 binaries, got $binaries"; exit 1; }
+              test "$signatures" -eq 6 || { echo "expected 6 signatures, got $signatures"; exit 1; }
+              (cd release && find . -maxdepth 1 -type f -name '$(APP_BINARY_NAME)_*' ! -name '*.sig' -printf '%f\0' | sort -z | xargs -0 sha256sum) > release/checksums.txt
+              BASE=$(pick "$AZURE_PUBLIC_BASE_URL")
+              BASE="${BASE%/}"
+              DISPLAY="$DISPLAY" BASE="$BASE" APP_BINARY_NAME='$(APP_BINARY_NAME)' python3 - <<'PY'
+              import hashlib, json, os, pathlib
+              release = pathlib.Path('release')
+              version = os.environ['DISPLAY']
+              base = os.environ['BASE']
+              prefix = os.environ['APP_BINARY_NAME'] + '_'
+              assets = []
+              for binary in sorted(release.glob(prefix + '*')):
+                  if binary.name.endswith('.sig') or not binary.is_file(): continue
+                  sig = release / (binary.name + '.sig')
+                  url = '' if not base else base + '/releases/' + version + '/' + binary.name
+                  assets.append({
+                      'name': binary.name,
+                      'url': url,
+                      'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+                      'signature': sig.read_text().strip(),
+                      'size': binary.stat().st_size,
+                  })
+              doc = {'releases': [{'version': version, 'draft': False, 'prerelease': False, 'assets': assets}]}
+              release.joinpath('index.json').write_text(json.dumps(doc, indent=2))
+              PY
+              echo "ASSEMBLED $DISPLAY: $binaries binaries, $signatures signatures, $(wc -c < release/index.json) byte index"
+            env:
+              AZURE_PUBLIC_BASE_URL: $(AZURE_PUBLIC_BASE_URL)
+          - task: UniversalPackages@0
+            displayName: Publish universal package (Azure Artifacts, free)
+            condition: and(succeeded(), ne(variables['AZURE_ARTIFACTS_FEED'], ''))
+            inputs:
+              command: publish
+              publishDirectory: '$(System.DefaultWorkingDirectory)/release'
+              vstsFeedPublish: '$(AZURE_ARTIFACTS_FEED)'
+              vstsFeedPackagePublish: '$(UPACK_NAME)'
+              packagePublishVersion: '$(UPACK_VERSION)'
+              packagePublishDescription: 'Go selfupdate release $(RELEASE_DISPLAY)'
+              publishPackageMetadataOnly: false
+          - bash: |
+              set -euo pipefail
+              COLLECTION='$(System.CollectionUri)'
+              ORG=$(printf '%s' "$COLLECTION" | sed -E 's#^https?://[^/]+/?##; s#/$##')
+              FEED_SPEC='$(AZURE_ARTIFACTS_FEED)'
+              PKG='$(UPACK_NAME)'
+              VERSION='$(UPACK_VERSION)'
+              case "$FEED_SPEC" in
+                */*) FEED_PROJECT=${FEED_SPEC%%/*}; FEED=${FEED_SPEC#*/};;
+                *)   FEED_PROJECT=''; FEED=$FEED_SPEC;;
+              esac
+              BASE="https://feeds.dev.azure.com/$ORG"
+              if [ -n "$FEED_PROJECT" ]; then BASE="$BASE/$FEED_PROJECT"; fi
+              PACKAGE_ID=$(curl -sf -u :"$SYSTEM_ACCESSTOKEN" "$BASE/_apis/packaging/feeds/$FEED/packages?packageNameQuery=$PKG&protocolType=Universal&api-version=7.1" | jq -r --arg n "$PKG" '.value[] | select(.name==$n) | .id' | head -n1)
+              test -n "$PACKAGE_ID" || { echo "package $PKG not found in feed $FEED_SPEC"; exit 1; }
+              curl -sf -X POST -u :"$SYSTEM_ACCESSTOKEN" "$BASE/_apis/packaging/feeds/$FEED/views/@Release/packages/$PACKAGE_ID/versions/$VERSION?api-version=7.1" | jq -r '"promoted \(.name)@\(.normalizedVersion) to @Release"'
+              echo "PROMOTED $PKG@$VERSION to @Release (retention-protected)"
+            displayName: Promote to @Release view (max retention)
+            condition: and(succeeded(), ne(variables['AZURE_ARTIFACTS_FEED'], ''))
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
           - task: AzureCLI@2
+            displayName: Publish to Azure Blob (needs subscription)
+            condition: and(succeeded(), ne(variables['AZURE_STORAGE_ACCOUNT'], ''))
             inputs:
               azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
                 set -euo pipefail
-                git fetch --tags --force
-                COMMIT_TIME=$(git show -s --format=%cI HEAD)
-                DISPLAY=$(go run ./cmd/versiongen --format display --time "$COMMIT_TIME")
-                BASE="${AZURE_PUBLIC_BASE_URL%/}/releases/$DISPLAY"
+                BASE="${AZURE_PUBLIC_BASE_URL%/}/releases/$(RELEASE_DISPLAY)"
                 test -n "$AZURE_PUBLIC_BASE_URL" || { echo 'AZURE_PUBLIC_BASE_URL is required'; exit 1; }
                 rm -rf upload && mkdir upload
-                find '$(Pipeline.Workspace)' -type f -name '$(APP_BINARY_NAME)_*' -exec cp {} upload/ \;
-                binaries=$(find upload -maxdepth 1 -type f -name '$(APP_BINARY_NAME)_*' ! -name '*.sig' | wc -l)
-                signatures=$(find upload -maxdepth 1 -type f -name '*.sig' | wc -l)
-                test "$binaries" -eq 6 || { echo "expected 6 binaries, got $binaries"; exit 1; }
-                test "$signatures" -eq 6 || { echo "expected 6 signatures, got $signatures"; exit 1; }
-                (cd upload && find . -maxdepth 1 -type f -name '$(APP_BINARY_NAME)_*' ! -name '*.sig' -printf '%f\0' | sort -z | xargs -0 sha256sum) > upload/checksums.txt
+                cp release/* upload/
                 az storage blob download --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name index.json --file previous-index.json --overwrite || true
-                DISPLAY="$DISPLAY" BASE="$BASE" APP_BINARY_NAME='$(APP_BINARY_NAME)' python3 - <<'PY'
+                DISPLAY="$(RELEASE_DISPLAY)" BASE="$BASE" APP_BINARY_NAME='$(APP_BINARY_NAME)' python3 - <<'PY'
                 import hashlib, json, os, pathlib
                 upload = pathlib.Path('upload')
                 previous = {'releases': []}
@@ -204,11 +273,11 @@ stages:
                 for file in upload/*; do
                   name=$(basename "$file")
                   if [ "$name" = index.json ]; then continue; fi
-                  az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name "releases/$DISPLAY/$name" --file "$file" --overwrite
+                  az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name "releases/$(RELEASE_DISPLAY)/$name" --file "$file" --overwrite
                 done
                 az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name index.json --file upload/index.json --overwrite
                 curl -fsSL "$BASE/$(APP_BINARY_NAME)_linux_amd64" -o published-app
                 chmod +x published-app
-                test "$(./published-app version)" = "$DISPLAY" && echo "POST-PUBLISH PASS: published version $DISPLAY"
-            env:
-              AZURE_PUBLIC_BASE_URL: $(AZURE_PUBLIC_BASE_URL)
+                test "$(./published-app version)" = "$(RELEASE_DISPLAY)" && echo "POST-PUBLISH PASS: published version $(RELEASE_DISPLAY)"
+              env:
+                AZURE_PUBLIC_BASE_URL: $(AZURE_PUBLIC_BASE_URL)
