@@ -33,6 +33,8 @@ Secrets cần thiết: `APP_BINARY_PRIVATE_KEY`, `APP_MANIFEST_PRIVATE_KEY`, `AP
 
 Không commit private key thật. Script `scripts/ci-keys.sh` có fallback dành cho local/CI không production; production phải cấu hình secret riêng.
 
+Setup Azure DevOps (tạo feed Artifacts, retention policy, grant Build Service) làm một lần, xem [`docs/AZURE_SETUP.md`](AZURE_SETUP.md) — hỗ trợ cả làm tay trên UI lẫn tự động hóa bằng REST API.
+
 ## Quy trình phát hành
 
 ```bash

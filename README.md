@@ -84,6 +84,7 @@ Khi dùng `update --silent`, mã thoát là: `0` cập nhật thành công, `10`
 
 - [`docs/SPEC.md`](docs/SPEC.md): đặc tả kỹ thuật và format manifest.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md): build, release và CI/CD.
+- [`docs/AZURE_SETUP.md`](docs/AZURE_SETUP.md): thiết lập Azure DevOps Artifacts một lần (UI hoặc REST API).
 - [`docs/SETUP.md`](docs/SETUP.md): môi trường phát triển.
 - [`docs/EXAMPLES.md`](docs/EXAMPLES.md): ví dụ chạy app và self-update.
 - [`docs/DESKTOP_ADAPTERS.md`](docs/DESKTOP_ADAPTERS.md): adapter desktop.
