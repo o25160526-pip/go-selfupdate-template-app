@@ -31,6 +31,7 @@ stages:
               path: '$(GOCACHE)'
           - script: go test -race ./...
           - script: go vet ./...
+          - script: sh ./scripts/audit-plan.sh
           - script: sh ./scripts/e2e-local.sh
 
   - stage: Build
@@ -54,19 +55,94 @@ stages:
               git fetch --tags --force
               COMMIT_TIME=$(git show -s --format=%cI HEAD)
               DISPLAY=$(go run ./cmd/versiongen --format display --time "$COMMIT_TIME")
-              CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
-                -ldflags "-s -w -X github.com/your-org/go-selfupdate-template/internal/version.Display=$DISPLAY -X github.com/your-org/go-selfupdate-template/internal/version.Commit=$(Build.SourceVersion)" \
+              pick() { case "${1:-}" in ""|'$('*) printf '';; *) printf '%s' "$1";; esac; }
+              CURRENT_KEY=$(pick "$APP_CURRENT_PUBLIC_KEY")
+              NEXT_KEY=$(pick "$APP_NEXT_PUBLIC_KEY")
+              MANIFEST_URL=$(pick "$APP_MANIFEST_URL")
+              BLOB_BASE=$(pick "$AZURE_PUBLIC_BASE_URL")
+              SIGN_KEY=$(pick "$APP_BINARY_PRIVATE_KEY")
+              OWNER= REPO=
+              case "$BUILD_REPOSITORY_URI" in
+                *github.com/*) OWNER_REPO=${BUILD_REPOSITORY_URI#*github.com/}; OWNER_REPO=${OWNER_REPO%.git}; OWNER=${OWNER_REPO%/*}; REPO=${OWNER_REPO#*/};;
+              esac
+              LDFLAGS="-s -w -X github.com/your-org/go-selfupdate-template/internal/version.Display=$DISPLAY -X github.com/your-org/go-selfupdate-template/internal/version.Commit=$(Build.SourceVersion) -X github.com/your-org/go-selfupdate-template/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              [ -z "$OWNER" ] || LDFLAGS="$LDFLAGS -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubOwner=$OWNER -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultGitHubRepo=$REPO"
+              [ -z "$CURRENT_KEY" ] || LDFLAGS="$LDFLAGS -X github.com/your-org/go-selfupdate-template/internal/buildinfo.CurrentPublicKey=$CURRENT_KEY"
+              [ -z "$NEXT_KEY" ] || LDFLAGS="$LDFLAGS -X github.com/your-org/go-selfupdate-template/internal/buildinfo.NextPublicKey=$NEXT_KEY"
+              [ -z "$MANIFEST_URL" ] || LDFLAGS="$LDFLAGS -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultManifestURL=$MANIFEST_URL"
+              [ -z "$BLOB_BASE" ] || LDFLAGS="$LDFLAGS -X github.com/your-org/go-selfupdate-template/internal/buildinfo.DefaultAzureIndexURL=${BLOB_BASE%/}/index.json"
+              CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags "$LDFLAGS" \
                 -o "$(Build.ArtifactStagingDirectory)/$(APP_BINARY_NAME)_$(GOOS)_$(GOARCH)$(EXT)" ./cmd/app
-              if [ -n "${APP_BINARY_PRIVATE_KEY:-}" ]; then
+              if [ -n "$SIGN_KEY" ]; then
                 go run ./cmd/binarysign --file "$(Build.ArtifactStagingDirectory)/$(APP_BINARY_NAME)_$(GOOS)_$(GOARCH)$(EXT)"
               fi
             env:
+              APP_CURRENT_PUBLIC_KEY: $(APP_CURRENT_PUBLIC_KEY)
+              APP_NEXT_PUBLIC_KEY: $(APP_NEXT_PUBLIC_KEY)
               APP_BINARY_PRIVATE_KEY: $(APP_BINARY_PRIVATE_KEY)
+              APP_MANIFEST_URL: $(APP_MANIFEST_URL)
+              AZURE_PUBLIC_BASE_URL: $(AZURE_PUBLIC_BASE_URL)
           - publish: '$(Build.ArtifactStagingDirectory)'
             artifact: 'app-$(GOOS)-$(GOARCH)'
 
-  - stage: PublishBlob
+  - stage: SmokeUpdate
     dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: smoke
+        pool: {vmImage: ubuntu-latest}
+        steps:
+          - checkout: self
+            fetchDepth: 0
+          - task: GoTool@0
+            inputs: {version: '$(GO_VERSION)'}
+          - download: current
+            patterns: 'app-linux-amd64/*'
+          - bash: |
+              set -euo pipefail
+              git fetch --tags --force
+              COMMIT_TIME=$(git show -s --format=%cI HEAD)
+              NEW_VERSION=$(go run ./cmd/versiongen --format display --time "$COMMIT_TIME")
+              OLD_VERSION=1.26.0101.0000
+              OLD_BIN=smoke-old
+              NEW_ASSET=$(find '$(Pipeline.Workspace)' -type f -name '$(APP_BINARY_NAME)_linux_amd64' | head -n1)
+              test -s "$NEW_ASSET"
+              go build -ldflags "-X github.com/your-org/go-selfupdate-template/internal/version.Display=$OLD_VERSION -X github.com/your-org/go-selfupdate-template/internal/version.Commit=smoke-old -X github.com/your-org/go-selfupdate-template/internal/buildinfo.CurrentPublicKey=${APP_CURRENT_PUBLIC_KEY:-} -X github.com/your-org/go-selfupdate-template/internal/buildinfo.NextPublicKey=${APP_NEXT_PUBLIC_KEY:-}" -o "$OLD_BIN" ./cmd/app
+              test -s "$OLD_BIN"
+              mkdir -p "serve/releases/$NEW_VERSION"
+              cp "$NEW_ASSET" "serve/releases/$NEW_VERSION/$(APP_BINARY_NAME)_linux_amd64"
+              cp "$NEW_ASSET.sig" "serve/releases/$NEW_VERSION/$(APP_BINARY_NAME)_linux_amd64.sig"
+              python3 - "$NEW_VERSION" '$(APP_BINARY_NAME)_linux_amd64' > serve/index.json <<'PY'
+              import hashlib, json, sys
+              version, asset = sys.argv[1], sys.argv[2]
+              rel = 'serve/releases/%s/%s' % (version, asset)
+              data = open(rel, 'rb').read()
+              sig = open(rel + '.sig').read().strip()
+              doc = {'releases': [{'version': version, 'draft': False, 'prerelease': False, 'assets': [{'name': asset, 'url': 'http://127.0.0.1:8080/releases/%s/%s' % (version, asset), 'sha256': hashlib.sha256(data).hexdigest(), 'signature': sig, 'size': len(data)}]}]}
+              json.dump(doc, sys.stdout, indent=2)
+              PY
+              python3 -m http.server 8080 --directory serve >/tmp/httpd.log 2>&1 &
+              SRV_PID=$!
+              trap 'kill $SRV_PID 2>/dev/null || true' EXIT
+              for _ in $(seq 1 50); do curl -sf "http://127.0.0.1:8080/index.json" >/dev/null && break; sleep 0.2; done
+              export APP_AZURE_INDEX_URL="http://127.0.0.1:8080/index.json"
+              export APP_MANIFEST_URL=
+              export APP_CHANNEL=stable
+              export APP_CACHE_DIR="$PWD/smoke-cache"
+              export APP_LOG_FILE="$PWD/smoke-update.log"
+              "./$OLD_BIN" update --silent --version "$NEW_VERSION" --timeout 2m
+              test "$("./$OLD_BIN" version)" = "$NEW_VERSION"
+              "./$OLD_BIN" rollback --target "$PWD/$OLD_BIN"
+              test "$("./$OLD_BIN" version)" = "$OLD_VERSION"
+              "./$OLD_BIN" update --silent --version "$NEW_VERSION" --timeout 2m
+              test "$("./$OLD_BIN" version)" = "$NEW_VERSION"
+              echo "AZURE SMOKE PASS: $OLD_VERSION -> $NEW_VERSION -> rollback -> re-update"
+            env:
+              APP_CURRENT_PUBLIC_KEY: $(APP_CURRENT_PUBLIC_KEY)
+              APP_NEXT_PUBLIC_KEY: $(APP_NEXT_PUBLIC_KEY)
+
+  - stage: PublishBlob
+    dependsOn: [Build, SmokeUpdate]
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
       - job: publish
@@ -131,5 +207,8 @@ stages:
                   az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name "releases/$DISPLAY/$name" --file "$file" --overwrite
                 done
                 az storage blob upload --account-name '$(AZURE_STORAGE_ACCOUNT)' --container-name '$(AZURE_CONTAINER)' --name index.json --file upload/index.json --overwrite
+                curl -fsSL "$BASE/$(APP_BINARY_NAME)_linux_amd64" -o published-app
+                chmod +x published-app
+                test "$(./published-app version)" = "$DISPLAY" && echo "POST-PUBLISH PASS: published version $DISPLAY"
             env:
               AZURE_PUBLIC_BASE_URL: $(AZURE_PUBLIC_BASE_URL)
