@@ -81,65 +81,74 @@ func (d Downloader) Download(ctx context.Context, a Asset, dst string, publicKey
 	return "", fmt.Errorf("%w: %v", ErrDownload, last)
 }
 func (d Downloader) downloadOnce(ctx context.Context, url, part, statePath string) error {
-	var offset int64
-	if b, err := os.ReadFile(statePath); err == nil {
-		var state downloadState
-		if json.Unmarshal(b, &state) != nil || state.URL != url {
+	for {
+		var offset int64
+		if b, err := os.ReadFile(statePath); err == nil {
+			var state downloadState
+			if json.Unmarshal(b, &state) != nil || state.URL != url {
+				_ = os.Remove(part)
+				_ = os.Remove(statePath)
+			}
+		} else if _, err := os.Stat(part); err == nil {
 			_ = os.Remove(part)
-			_ = os.Remove(statePath)
 		}
-	} else if _, err := os.Stat(part); err == nil {
-		_ = os.Remove(part)
-	}
-	if st, err := os.Stat(part); err == nil {
-		offset = st.Size()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	if offset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-	}
-	if d.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+d.Token)
+		if st, err := os.Stat(part); err == nil {
+			offset = st.Size()
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		if offset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+		if d.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+d.Token)
+		}
 		if strings.Contains(url, "/releases/assets/") {
 			req.Header.Set("Accept", "application/octet-stream")
 		}
+		resp, err := d.client().Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+			resp.Body.Close()
+			_ = os.Remove(part)
+			_ = os.Remove(statePath)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+			resp.Body.Close()
+			return fmt.Errorf("download status %d", resp.StatusCode)
+		}
+		defer resp.Body.Close()
+		flags := os.O_CREATE | os.O_WRONLY
+		if resp.StatusCode == http.StatusPartialContent && offset > 0 {
+			flags |= os.O_APPEND
+		} else {
+			flags |= os.O_TRUNC
+			offset = 0
+		}
+		f, err := os.OpenFile(part, flags, 0o600)
+		if err != nil {
+			return err
+		}
+		n, copyErr := io.Copy(f, resp.Body)
+		syncErr := f.Sync()
+		closeErr := f.Close()
+		st := downloadState{URL: url, Bytes: offset + n, UpdatedAt: time.Now().UTC()}
+		if b, e := json.Marshal(st); e == nil {
+			_ = os.WriteFile(statePath, b, 0o600)
+		}
+		if copyErr != nil {
+			return copyErr
+		}
+		if syncErr != nil {
+			return syncErr
+		}
+		return closeErr
 	}
-	resp, err := d.client().Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return fmt.Errorf("download status %d", resp.StatusCode)
-	}
-	flags := os.O_CREATE | os.O_WRONLY
-	if resp.StatusCode == http.StatusPartialContent && offset > 0 {
-		flags |= os.O_APPEND
-	} else {
-		flags |= os.O_TRUNC
-		offset = 0
-	}
-	f, err := os.OpenFile(part, flags, 0o600)
-	if err != nil {
-		return err
-	}
-	n, copyErr := io.Copy(f, resp.Body)
-	syncErr := f.Sync()
-	closeErr := f.Close()
-	st := downloadState{URL: url, Bytes: offset + n, UpdatedAt: time.Now().UTC()}
-	if b, e := json.Marshal(st); e == nil {
-		_ = os.WriteFile(statePath, b, 0o600)
-	}
-	if copyErr != nil {
-		return copyErr
-	}
-	if syncErr != nil {
-		return syncErr
-	}
-	return closeErr
 }
 func verifyFile(path, expectedSHA, signature string, keys []string) (string, error) {
 	b, err := os.ReadFile(path)

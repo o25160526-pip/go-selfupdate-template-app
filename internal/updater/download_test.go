@@ -53,6 +53,57 @@ func TestDownloadResumeVerify(t *testing.T) {
 		t.Fatal("data mismatch")
 	}
 }
+func TestDownloadRestartsOnRangeNotSatisfiable(t *testing.T) {
+	data := []byte(strings.Repeat("abc", 1000))
+	sum := sha256.Sum256(data)
+	var seenRanges []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenRanges = append(seenRanges, r.Header.Get("Range"))
+		if r.Header.Get("Range") == "bytes=3000-" {
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		_, _ = w.Write(data)
+	}))
+	defer srv.Close()
+	dst := filepath.Join(t.TempDir(), "blob")
+	_ = os.WriteFile(dst+".part", data[:3000], 0600)
+	state, _ := json.Marshal(downloadState{URL: srv.URL, Bytes: 3000})
+	_ = os.WriteFile(dst+".download.state.json", state, 0600)
+	d := Downloader{Client: srv.Client(), Retries: 1}
+	got, err := d.Download(context.Background(), Asset{URL: srv.URL, SHA256: hex.EncodeToString(sum[:])}, dst, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("hash %s", got)
+	}
+	if len(seenRanges) != 2 || seenRanges[0] != "bytes=3000-" || seenRanges[1] != "" {
+		t.Fatalf("expected resume-then-restart, got %v", seenRanges)
+	}
+}
+
+func TestDownloadSendsOctetStreamAcceptWithoutToken(t *testing.T) {
+	data := []byte("binary-content")
+	sum := sha256.Sum256(data)
+	var accept string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/releases/assets/") {
+			accept = r.Header.Get("Accept")
+		}
+		_, _ = w.Write(data)
+	}))
+	defer srv.Close()
+	d := Downloader{Client: srv.Client(), Retries: 1}
+	_, err := d.Download(context.Background(), Asset{URL: srv.URL + "/releases/assets/123", SHA256: hex.EncodeToString(sum[:])}, filepath.Join(t.TempDir(), "x"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accept != "application/octet-stream" {
+		t.Fatalf("Accept header = %q, want application/octet-stream", accept)
+	}
+}
+
 func TestDownloadRejectsChecksum(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("bad")) }))
 	defer srv.Close()
