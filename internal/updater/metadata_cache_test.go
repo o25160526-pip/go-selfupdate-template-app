@@ -4,9 +4,32 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestMetadataCacheAssetFetchSendsOctetStreamAcceptWithoutToken(t *testing.T) {
+	var accept string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/releases/assets/") {
+			accept = r.Header.Get("Accept")
+		}
+		_, _ = w.Write([]byte("detached-signature"))
+	}))
+	defer srv.Close()
+	cache := MetadataCache{Root: t.TempDir()}
+	body, err := cache.Get(context.Background(), srv.Client(), srv.URL+"/releases/assets/456", "", nil, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "detached-signature" {
+		t.Fatalf("body %q", body)
+	}
+	if accept != "application/octet-stream" {
+		t.Fatalf("Accept header = %q, want application/octet-stream", accept)
+	}
+}
 
 func TestMetadataCacheTTLAndETag(t *testing.T) {
 	requests := 0

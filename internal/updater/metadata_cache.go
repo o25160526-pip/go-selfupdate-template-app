@@ -100,9 +100,9 @@ func fetchMetadataResponse(ctx context.Context, client *http.Client, url, token 
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
-		if strings.Contains(url, "/releases/assets/") {
-			req.Header.Set("Accept", "application/octet-stream")
-		}
+	}
+	if strings.Contains(url, "/releases/assets/") {
+		req.Header.Set("Accept", "application/octet-stream")
 	}
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
