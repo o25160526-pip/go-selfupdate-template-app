@@ -1,0 +1,55 @@
+name: refresh-free-models
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-free-models
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Lấy danh sách model free
+        run: |
+          node scripts/refresh-free-models.mjs > docs/nghiepvu/free-models.json
+          node -e '
+            const j = require("./docs/nghiepvu/free-models.json");
+            if (!Array.isArray(j.free) || j.free.length === 0) {
+              console.error("KHÔNG có model free nào. Không mở PR. Cần con người quyết định.");
+              process.exit(1);
+            }
+            console.log("model free:", j.free.length, "->", j.free.join(", "));
+          '
+
+      - name: Mở PR cập nhật danh sách model free
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/refresh-free-models
+          base: main
+          delete-branch: true
+          commit-message: 'chore: cập nhật danh sách model free'
+          title: 'chore: cập nhật danh sách model free'
+          body: |
+            Cập nhật `docs/nghiepvu/free-models.json` từ
+            https://opencode.ai/zen/v1/models (chạy `scripts/refresh-free-models.mjs`).
+
+            Hệ thống issue-agent chỉ dùng các model trong file này. Nếu danh sách
+            rỗng, vui lòng không merge mà xem xét trước.
+          labels:
+            - nghiepvu:phat-hanh-ci
+            - type:fix

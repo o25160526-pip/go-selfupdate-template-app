@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Chỉ mục nghiệp vụ — chọn đúng template
+    url: https://github.com/o25160526-pip/go-selfupdate-template-app/blob/main/docs/nghiepvu/INDEX.md
+    about: Xem danh sách nghiệp vụ và phạm vi file trước khi tạo issue.

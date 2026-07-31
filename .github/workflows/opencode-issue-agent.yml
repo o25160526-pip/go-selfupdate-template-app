@@ -1,0 +1,416 @@
+name: opencode-issue-agent
+
+# =============================================================
+# Issue-Driven AI Development — agent chạy miễn phí trên
+# OpenCode Zen (chỉ model free `opencode/<id>`, KHÔNG API key).
+#
+# Điều khiển bằng comment trên issue:
+#   /opencode ask      — agent trả lời, không sửa file
+#   /opencode plan     — agent lên kế hoạch triển khai
+#   /opencode approve  — duyệt kế hoạch (gắn nhãn status:approved)
+#   /opencode execute  — thực thi (CHỈ chạy khi có status:approved,
+#                        trừ issue có nhãn size:small)
+#
+# State machine label: status:new -> analyzing -> plan-ready
+#   -> approved -> executing -> pr-created | done
+#   (+ status:error, status:needs-clarification, status:needs-human)
+#
+# Guardrail: agent chỉ được sửa file nằm trong phạm vi ALLOWED của
+#   docs/nghiepvu/<slug>.md; file ngoài phạm vi bị revert tự động.
+#   Không có model free khả dụng -> status:needs-human, dừng ngay.
+# =============================================================
+
+on:
+  issues:
+    types: [opened, labeled, reopened]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: opencode-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # -------------------------------------------------------
+      # Routing + state machine (parse label/body/comment)
+      # -------------------------------------------------------
+      - id: route
+        name: Xác định lệnh, nghiệp vụ, model
+        uses: actions/github-script@v7
+        env:
+          SLUG_DOCS: docs/nghiepvu
+        with:
+          script: |
+            const fs = require('fs');
+            const issue = github.event.issue;
+            const labels = (issue.labels || []).map(l => l.name);
+
+            const pick = (prefix) => labels.find(l => l.startsWith(prefix));
+            const slug = (pick('nghiepvu:') || '').replace('nghiepvu:', '');
+            const type = (pick('type:') || '').replace('type:', '');
+            const size = (pick('size:') || '').replace('size:', '');
+            const status = pick('status:') ? (pick('status:').replace('status:', '')) : '';
+            const modelLabel = (pick('model:') || '').replace('model:', '');
+
+            const out = { skip: 'true', command: '', slug, type, size, model_id: 'big-pickle', model_fallback: 'false', needs_human: 'false' };
+
+            let commentBody = '';
+            let eventType = '';
+            if (github.event_name === 'issue_comment') {
+              commentBody = (github.event.comment.body || '');
+              eventType = 'comment';
+            } else {
+              eventType = 'issues';
+            }
+
+            if (eventType === 'issues') {
+              const statusOk = status === 'new' || status === '';
+              if (!statusOk) { core.setOutputs(out); return; }
+              if (!slug || !type) {
+                core.setOutputs(out);
+                await github.rest.issues.createComment({
+                  owner: issue.repository_url.split('/')[4],
+                  repo: issue.repository_url.split('/')[5],
+                  issue_number: issue.number,
+                  body: 'Không tìm thấy nhãn `nghiepvu:*` hoặc `type:*`. Vui lòng tạo lại issue bằng template: mở `docs/nghiepvu/INDEX.md` để chọn đúng nghiệp vụ.'
+                });
+                await addStatusLabel('needs-clarification');
+                return;
+              }
+              out.skip = 'false';
+              out.command = 'research';
+            } else {
+              const bot = github.event.comment.user && github.event.comment.user.type === 'Bot';
+              if (bot) { core.setOutputs(out); return; }
+              const m = commentBody.match(/\/opencode\s+(ask|plan|approve|execute)/);
+              if (!m) { core.setOutputs(out); return; }
+              const cmd = m[1];
+
+              if (cmd === 'approve') {
+                await addStatusLabel('approved');
+                await github.rest.issues.createComment({
+                  owner: issue.repository_url.split('/')[4],
+                  repo: issue.repository_url.split('/')[5],
+                  issue_number: issue.number,
+                  body: 'Đã duyệt kế hoạch (gắn `status:approved`). Trả lời `/opencode execute` để agent thực thi.'
+                });
+                core.setOutputs(out);
+                return;
+              }
+              if (cmd === 'execute') {
+                if (status !== 'approved' && size !== 'small') {
+                  out.skip = 'true';
+                  await github.rest.issues.createComment({
+                    owner: issue.repository_url.split('/')[4],
+                    repo: issue.repository_url.split('/')[5],
+                    issue_number: issue.number,
+                    body: '`/opencode execute` chỉ chạy khi kế hoạch đã được duyệt (nhãn `status:approved`) — trừ issue có nhãn `size:small` (opt-in).\n\nTrả lời `/opencode plan` rồi `/opencode approve` trước.'
+                  });
+                  core.setOutputs(out);
+                  return;
+                }
+                out.command = 'execute';
+              } else {
+                out.command = cmd;
+              }
+              out.skip = 'false';
+            }
+
+            // ---- resolve model ----
+            let freeList = [];
+            try {
+              freeList = JSON.parse(fs.readFileSync('docs/nghiepvu/free-models.json', 'utf8')).free || [];
+            } catch (e) { /* để trống -> fallback */ }
+
+            if (freeList.length === 0) {
+              out.needs_human = 'true';
+              await addStatusLabel('needs-human');
+              await github.rest.issues.createComment({
+                owner: issue.repository_url.split('/')[4],
+                repo: issue.repository_url.split('/')[5],
+                issue_number: issue.number,
+                body: 'Không tìm thấy model miễn phí nào trong `docs/nghiepvu/free-models.json`. Hệ thống **dừng lại** — KHÔNG tự chuyển sang model trả phí. Cần con người quyết định.\n\nChạy lại workflow `refresh-free-models` để cập nhật danh sách.'
+              });
+              core.setOutputs(out);
+              return;
+            }
+
+            // body dropdown (option text = id), nhãn model:<id> được ưu tiên
+            let chosen = modelLabel || '';
+            if (!chosen) {
+              const dm = (issue.body || '').match(/### Chọn model AI[^\n]*\n+\s*([A-Za-z0-9._-]+)/);
+              if (dm) chosen = dm[1];
+            }
+            if (!chosen || !freeList.includes(chosen)) {
+              if (chosen && !freeList.includes(chosen)) {
+                out.model_fallback = 'true';
+              }
+              chosen = 'big-pickle';
+            }
+            out.model_id = chosen;
+            core.setOutputs(out);
+
+            async function addStatusLabel(name) {
+              const owner = issue.repository_url.split('/')[4];
+              const repo = issue.repository_url.split('/')[5];
+              const toRemove = labels.filter(l => l.startsWith('status:'));
+              if (toRemove.length) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: toRemove[0] }).catch(() => {});
+              }
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [`status:${name}`] });
+            }
+
+      # -------------------------------------------------------
+      # Trạng thái "đang chạy" (analyzing / executing)
+      # -------------------------------------------------------
+      - name: Đánh dấu đang chạy
+        if: steps.route.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          NEW_STATUS: ${{ steps.route.outputs.command == 'execute' && 'executing' || 'analyzing' }}
+        with:
+          script: |
+            const issue = github.event.issue;
+            const owner = issue.repository_url.split('/')[4];
+            const repo = issue.repository_url.split('/')[5];
+            const labels = (issue.labels || []).map(l => l.name);
+            const old = labels.find(l => l.startsWith('status:'));
+            if (old) await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: old }).catch(() => {});
+            await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [`status:${process.env.NEW_STATUS}`] });
+
+      # -------------------------------------------------------
+      # Build prompt-context từ issue + comments + tài liệu nghiệp vụ
+      # -------------------------------------------------------
+      - id: context
+        name: Tạo ngữ cảnh cho agent
+        if: steps.route.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          SLUG: ${{ steps.route.outputs.slug }}
+          COMMAND: ${{ steps.route.outputs.command }}
+        with:
+          script: |
+            const fs = require('fs');
+            const issue = github.event.issue;
+            const slug = process.env.SLUG;
+            const command = process.env.COMMAND;
+            const commentsRes = await github.rest.issues.listComments({
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+            const comments = commentsRes.data
+              .map(c => `[@${c.user.login}]:\n${c.body || ''}`)
+              .join('\n\n---\n\n');
+
+            let doc = '';
+            try { doc = fs.readFileSync(`docs/nghiepvu/${slug}.md`, 'utf8'); } catch (e) { doc = '(không tìm thấy tài liệu nghiệp vụ)'; }
+
+            const instructions = {
+              research: 'Trả lời yêu cầu trong issue. TUYỆT ĐỐI KHÔNG sửa bất kỳ file nào — chỉ trả lời.',
+              ask: 'Trả lời câu hỏi của người dùng. TUYỆT ĐỐI KHÔNG sửa bất kỳ file nào — chỉ trả lời.',
+              plan: 'Đề xuất kế hoạch triển khai chi tiết: các bước, từng file sẽ sửa (CHỈ nằm trong phạm vi ALLOWED ở tài liệu nghiệp vụ), test cần viết, rủi ro. KHÔNG sửa file.',
+              execute: 'Thực thi kế hoạch đã được duyệt (status:approved). Chỉ sửa file nằm trong phạm vi ALLOWED của tài liệu nghiệp vụ. Viết test đi kèm nếu nghiệp vụ yêu cầu. KHÔNG được chạy git commit, git push, gh pr hay tạo nhánh — CI tự xử lý sau.'
+            }[command] || 'Trả lời ngắn gọn, rõ ràng bằng tiếng Việt.';
+
+            const prompt = [
+              '# Vai trò',
+              `Bạn là agent phụ trách nghiệp vụ "${slug}" của repo ${github.context.repo.owner}/${github.context.repo.repo}.`,
+              'Trả lời bằng tiếng Việt.',
+              '',
+              '# Issue',
+              `Số: #${issue.number} — ${issue.title}`,
+              '',
+              issue.body || '(rỗng)',
+              '',
+              '# Bình luận hiện tại',
+              comments || '(không có)',
+              '',
+              '# Tài liệu nghiệp vụ (docs/nghiepvu/' + slug + '.md)',
+              doc,
+              '',
+              '# Lệnh cần thực hiện',
+              instructions,
+            ].join('\n');
+
+            core.setOutput('prompt', prompt);
+
+      # -------------------------------------------------------
+      # Chạy agent (action chính thức anomalyco/opencode/github)
+      # -------------------------------------------------------
+      - name: Agent chạy (lần 1)
+        id: agent1
+        if: steps.route.outputs.skip != 'true'
+        uses: anomalyco/opencode/github@latest
+        continue-on-error: true
+        with:
+          model: opencode/${{ steps.route.outputs.model_id }}
+          prompt: ${{ steps.context.outputs.prompt }}
+          use_github_token: 'true'
+          share: 'false'
+
+      - name: Backoff 30s
+        if: steps.route.outputs.skip != 'true' && steps.agent1.outcome == 'failure'
+        run: sleep 30
+
+      - name: Agent chạy (lần 2 — retry sau 429/failure)
+        id: agent2
+        if: steps.route.outputs.skip != 'true' && steps.agent1.outcome == 'failure'
+        uses: anomalyco/opencode/github@latest
+        continue-on-error: true
+        with:
+          model: opencode/${{ steps.route.outputs.model_id }}
+          prompt: ${{ steps.context.outputs.prompt }}
+          use_github_token: 'true'
+          share: 'false'
+
+      # -------------------------------------------------------
+      # Guardrail phạm vi file (git diff/status -> revert)
+      # -------------------------------------------------------
+      - name: Guardrail phạm vi file
+        id: guardrail
+        if: steps.route.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          cmd="${{ steps.route.outputs.command }}"
+          if [ "$cmd" != "execute" ]; then
+            if [ -n "$(git status --porcelain)" ]; then
+              git checkout -- . || true
+              git clean -fdq || true
+              echo "reverted_all=true" >> "$GITHUB_OUTPUT"
+            fi
+            echo "changed_count=0" >> "$GITHUB_OUTPUT"
+            echo "reverted_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node scripts/check-diff-scope.mjs "${{ steps.route.outputs.slug }}" /tmp/outofscope.txt
+          n=0
+          if [ -s /tmp/outofscope.txt ]; then
+            while read -r f; do
+              [ -z "$f" ] && continue
+              git checkout -- "$f" 2>/dev/null || rm -f -- "$f"
+              n=$((n+1))
+            done < /tmp/outofscope.txt
+          fi
+          echo "reverted_count=$n" >> "$GITHUB_OUTPUT"
+          echo "changed_count=$(git status --porcelain | wc -l)" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------
+      # Commit + push + mở PR (chỉ execute, khi agent thành công)
+      # -------------------------------------------------------
+      - name: Tạo PR từ thay đổi trong phạm vi
+        id: pr
+        if: >-
+          steps.route.outputs.skip != 'true' &&
+          steps.route.outputs.command == 'execute' &&
+          (steps.agent1.outcome == 'success' || steps.agent2.outcome == 'success') &&
+          steps.guardrail.outputs.changed_count != '0'
+        run: |
+          set -euo pipefail
+          branch="agent/${{ github.event.issue.number }}-${{ steps.route.outputs.slug }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "feat(${{ steps.route.outputs.slug }}): xử lý issue #${{ github.event.issue.number }}"
+          git push origin "$branch"
+          existing=$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/null || true)
+          if [ -z "$existing" ]; then
+            pr_body="Agent thực thi issue #${{ github.event.issue.number }} (nghiệp vụ \`${{ steps.route.outputs.slug }}\`, model \`${{ steps.route.outputs.model_id }}\`).
+
+            Xem phạm vi nghiệp vụ: docs/nghiepvu/${{ steps.route.outputs.slug }}.md"
+            pr=$(gh pr create \
+              --base "${{ github.event.repository.default_branch }}" \
+              --head "$branch" \
+              --title "feat(${{ steps.route.outputs.slug }}): xử lý issue #${{ github.event.issue.number }}" \
+              --body "$pr_body" \
+              --json number -q '.number')
+          else
+            pr="$existing"
+          fi
+          echo "pr_number=$pr" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------
+      # Trạng thái cuối + comment tổng kết
+      # -------------------------------------------------------
+      - name: Cập nhật trạng thái và tổng kết
+        if: steps.route.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          MODEL_ID: ${{ steps.route.outputs.model_id }}
+          MODEL_FALLBACK: ${{ steps.route.outputs.model_fallback }}
+          NEEDS_HUMAN: ${{ steps.route.outputs.needs_human }}
+          COMMAND: ${{ steps.route.outputs.command }}
+          REVERTED_COUNT: ${{ steps.guardrail.outputs.reverted_count }}
+          REVERTED_ALL: ${{ steps.guardrail.outputs.reverted_all }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        with:
+          script: |
+            const issue = github.event.issue;
+            const owner = github.context.repo.owner;
+            const repo = github.context.repo.repo;
+            const num = issue.number;
+            const command = process.env.COMMAND;
+            const agentOk = steps.agent1.outcome === 'success' || steps.agent2.outcome === 'success';
+            const runUrl = `${github.context.serverUrl}/${owner}/${repo}/actions/runs/${github.context.runId}`;
+
+            const setStatus = async (name) => {
+              const labels = (issue.labels || []).map(l => l.name);
+              const old = labels.find(l => l.startsWith('status:'));
+              if (old) await github.rest.issues.removeLabel({ owner, repo, issue_number: num, name: old }).catch(() => {});
+              await github.rest.issues.addLabels({ owner, repo, issue_number: num, labels: [`status:${name}`] });
+            };
+            const comment = async (body) => {
+              await github.rest.issues.createComment({ owner, repo, issue_number: num, body });
+            };
+
+            if (process.env.NEEDS_HUMAN === 'true') return;
+
+            const modelNote = process.env.MODEL_FALLBACK === 'true'
+              ? `\n\n> Lưu ý: model được chọn không nằm trong danh sách miễn phí (\`docs/nghiepvu/free-models.json\`) → đã dùng mặc định \`opencode/big-pickle\`.`
+              : '';
+
+            let body = '';
+            if (command === 'approve') return;
+
+            if (!agentOk) {
+              await setStatus('error');
+              await comment(`⚠️ Agent gặp lỗi khi thực hiện \`/opencode ${command}\` (đã thử 2 lần, có thể do rate limit 429).\n\nChi tiết: ${runUrl}`);
+              return;
+            }
+
+            const reverted = process.env.REVERTED_ALL === 'true'
+              ? ' (mọi thay đổi đã bị revert vì lệnh không được phép sửa file)'
+              : (process.env.REVERTED_COUNT && process.env.REVERTED_COUNT !== '0' ? ` (đã revert ${process.env.REVERTED_COUNT} file ngoài phạm vi)` : '');
+
+            if (command === 'execute') {
+              if (process.env.PR_NUMBER) {
+                await setStatus('pr-created');
+                body = `✅ Đã thực thi xong và mở PR #${process.env.PR_NUMBER}.${reverted}\n\nNếu thấy đúng, merge PR.${modelNote}`;
+              } else {
+                await setStatus('done');
+                body = `✅ Agent thực thi xong nhưng không có thay đổi nào trong phạm vi nghiệp vụ.${reverted}${modelNote}`;
+              }
+            } else if (command === 'ask') {
+              body = `✅ Đã xong \`/opencode ask\`. Xem câu trả lời ở trên hoặc trong [run log](${runUrl}).${modelNote}`;
+            } else {
+              await setStatus('plan-ready');
+              const next = command === 'research'
+                ? '\n\nBước tiếp theo: trả lời `/opencode plan` để agent đề xuất kế hoạch chi tiết, hoặc `/opencode approve` rồi `/opencode execute`.'
+                : '\n\nNếu kế hoạch ổn, trả lời `/opencode approve` để duyệt, rồi `/opencode execute`.';
+              body = `✅ Đã xong \`/opencode ${command}\`. Xem kết quả ở trên hoặc trong [run log](${runUrl}).${next}${modelNote}`;
+            }
+            await comment(body);

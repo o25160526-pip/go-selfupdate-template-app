@@ -1,0 +1,53 @@
+name: "[CLI, cấu hình và giao diện] Yêu cầu sửa lỗi / fix"
+description: "Nhờ agent tìm hiểu, lên kế hoạch và sửa lỗi (cần duyệt trước khi execute). Miễn phí — không cần API key."
+title: "[fix][cli-giao-dien] "
+labels: ["nghiepvu:cli-giao-dien", "type:fix", "status:new"]
+body:
+  - type: textarea
+    id: yeu-cau
+    attributes:
+      label: Nội dung cần xử lý
+      description: Mô tả rõ yêu cầu / lỗi / hành vi mong muốn, bước tái hiện nếu có
+      placeholder: Mô tả ngắn gọn, đủ rõ để agent tìm đúng chỗ trong code.
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Chọn model AI (miễn phí, không cần API key)
+      description: |
+        Danh sách model free hiện tại của OpenCode Zen (tự refresh mỗi tuần).
+        - `big-pickle`: Mặc định. Nhanh, hợp code review/research, không cần chọn.
+        - `deepseek-v4-flash-free`: Nhanh, hợp trả lời nhanh và task nhỏ.
+        - `mimo-v2.5-free`: Mạnh reasoning, hợp fix/feature phức tạp.
+        - `north-mini-code-free`: Nhẹ, hợp task rất nhỏ.
+        - `nemotron-3-ultra-free`: Context 1M token, hợp phân tích codebase lớn.
+      options:
+      - "big-pickle"
+      - "deepseek-v4-flash-free"
+      - "mimo-v2.5-free"
+      - "north-mini-code-free"
+      - "nemotron-3-ultra-free"
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: ngu-canh
+    attributes:
+      label: Ngữ cảnh bổ sung (log, ảnh lỗi, link liên quan)
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        Nghiệp vụ: CLI, cấu hình và giao diện — cmd/app/, internal/app/, internal/config/, internal/ui/, internal/tray/, internal/buildinfo/.
+        ---
+        Toàn bộ quá trình này **miễn phí, không cần đăng ký hay API key**.
+        Phạm vi file được phép sửa: mở `docs/nghiepvu/cli-giao-dien.md` để xem.
+        Điều khiển agent bằng comment:
+        - `/opencode ask` — đặt câu hỏi (agent trả lời, không sửa code).
+        - `/opencode plan` — nhờ agent lên kế hoạch sửa/thêm.
+        - `/opencode approve` — duyệt kế hoạch (gắn nhãn `status:approved`).
+        - `/opencode execute` — thực thi, chỉ chạy khi đã có nhãn `status:approved`
+          (trừ `size:small` opt-in — issue có nhãn này được chạy thẳng).
+
