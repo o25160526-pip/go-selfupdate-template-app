@@ -65,7 +65,31 @@ agent nghiên cứu / lên kế hoạch / sửa code trong phạm vi nghiệp v�
    `<slug>-fix.yml`, `<slug>-feature.yml` (copy từ nghiệp vụ khác, đổi label
    `nghiepvu:<slug>`).
 
-## 6. An toàn / chống lạm dụng
+## 6. Thêm loại issue mới (type mới)
+
+Hệ thống có sẵn 3 loại: `type:research`, `type:fix`, `type:feature`. Loại mới
+(chẳng hạn `type:docs`, `type:review`) chỉ là **phân loại** — **không ảnh hưởng
+logic workflow**: lệnh điều khiển vẫn là `/opencode ask | plan | approve |
+execute`, state machine và guardrail giữ nguyên. Các bước thêm một loại `X`:
+
+1. **Tạo template** `.github/ISSUE_TEMPLATE/<slug>-X.yml` (copy từ
+   `<slug>-research.yml`), sửa `name`/`description`/`title` và nhãn
+   `type:X` (vẫn giữ `nghiepvu:<slug>` + `status:new`).
+2. **Tạo nhãn `type:X` trong repo TRƯỚC** — bắt buộc, vì workflow dùng
+   `addLabels`/`removeLabel` (nhãn không tồn tại → API lỗi):
+   `gh label create "type:X" --description "..."` hoặc tạo trên
+   Settings → Labels.
+   - Tương tự, mọi nhãn `status:*`, `size:*`, `nghiepvu:*` dùng trong hệ thống
+     đều phải tồn tại trong repo.
+3. **Mô tả ngữ nghĩa** của loại `X` vào `docs/nghiepvu/<slug>.md` của nghiệp vụ
+   (khi nào dùng, kết quả mong đợi là gì).
+4. **KHÔNG cần sửa** `.github/workflows/opencode-issue-agent.yml` — step route chỉ
+   kiểm tra sự tồn tại của `nghiepvu:*` và `type:*`, không biết trước danh sách loại.
+
+Lưu ý: nghiệp vụ `khao-sat-nghiep-vu` dùng để phát hiện/chuẩn hóa nghiệp vụ mới
+từ codebase — tạo các template nghiệp vụ mới qua nghiệp vụ này.
+
+## 7. An toàn / chống lạm dụng
 
 - Chỉ `GITHUB_TOKEN` (mặc định, hết hạn sau run) — không secret tùy chỉnh.
 - `concurrency: group=opencode-issue-<issue.number>`, `cancel-in-progress: false`
@@ -77,9 +101,14 @@ agent nghiên cứu / lên kế hoạch / sửa code trong phạm vi nghiệp v�
 - Workflow không kích hoạt lại khi bot tự comment (lọc comment của Bot /
   comment không chứa `/opencode`).
 
-## 7. Cấu hình local (tùy chọn)
+## 8. Cấu hình local (tùy chọn)
 
 `.opencode/opencode.json` đặt model mặc định + quyền (edit/bash allow, webfetch ask).
 Muốn chạy thử ngoài GitHub:
 `opencode run "<nội dung>" --model opencode/big-pickle`. Sau khi sửa config, thoát
 và mở lại opencode để áp dụng.
+
+## 9. Tham chiếu spec gốc
+
+Toàn bộ hệ thống được xây từ `docs/nghiepvu/PROMPT-GOC.md` (spec do chủ repo đưa ra).
+Khi có mâu thuẫn giữa tài liệu vận hành và spec gốc → spec gốc là nguồn sự thật.
