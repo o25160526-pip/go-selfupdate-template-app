@@ -293,8 +293,45 @@ jobs:
           if ($status -ne 0) { throw "Published binary exited with $status" }
           if ($version -ne $env:EXPECTED) { throw "Published version '$version' != expected '$env:EXPECTED'" }
           Get-Content reports/post-publish-$env:TAG.log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
+      - name: Stable self-update without token
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          EXPECTED: ${{ needs.version.outputs.display }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force reports, stable | Out-Null
+          $log = "reports/post-publish-stable-$env:TAG.log"
+          $previous = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.draft == false and .tag_name != \"$env:TAG\") | .tag_name" | Select-Object -First 1
+          if (-not $previous) {
+            "stable_self_update=skipped (no previous release)" | Add-Content $log
+            Get-Content $log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          $asset = "${{ env.APP_BINARY_NAME }}_windows_amd64.exe"
+          gh release download $previous --repo $env:GITHUB_REPOSITORY --pattern $asset --dir stable
+          $path = Join-Path stable $asset
+          if (-not (Test-Path $path)) { throw "Previous stable binary not found: $asset" }
+          Remove-Item Env:APP_UPDATE_TOKEN -ErrorAction SilentlyContinue
+          $env:APP_GITHUB_OWNER = '${{ github.repository_owner }}'
+          $env:APP_GITHUB_REPO = '${{ github.event.repository.name }}'
+          $env:APP_GITHUB_API = 'https://api.github.com'
+          $env:APP_CHANNEL = 'stable'
+          $env:APP_MANIFEST_URL = ''
+          $env:APP_CACHE_DIR = "$env:RUNNER_TEMP\app-cache-stable"
+          $env:APP_LOG_FILE = "$env:RUNNER_TEMP\app-update-stable.log"
+          $old = (& $path version 2>&1 | Out-String).Trim()
+          & $path update --silent --channel stable --version $env:EXPECTED --timeout 5m 2>&1 | Out-String | Write-Output
+          $status = $LASTEXITCODE
+          $new = (& $path version 2>&1 | Out-String).Trim()
+          @("previous_tag=$previous","old=$old","new=$new","update_exit=$status","expected=$env:EXPECTED") | Set-Content $log
+          Get-Content $env:APP_LOG_FILE -ErrorAction SilentlyContinue | Add-Content $log
+          if ($status -ne 0 -and $status -ne 10) { throw "Stable self-update exited with $status" }
+          if ($new -ne $env:EXPECTED) { throw "Stable self-update reached '$new' != expected '$env:EXPECTED'" }
+          Get-Content $log | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v7
         with:
           name: post-publish-verification-${{ needs.version.outputs.tag }}
-          path: reports/post-publish-${{ needs.version.outputs.tag }}.log
+          path: reports/post-publish-*
           if-no-files-found: error
