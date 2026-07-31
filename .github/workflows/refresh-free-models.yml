@@ -50,6 +50,4 @@ jobs:
 
             Hệ thống issue-agent chỉ dùng các model trong file này. Nếu danh sách
             rỗng, vui lòng không merge mà xem xét trước.
-          labels:
-            - nghiepvu:phat-hanh-ci
-            - type:fix
+          labels: nghiepvu:phat-hanh-ci, type:fix
