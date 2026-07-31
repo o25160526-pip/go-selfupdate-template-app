@@ -4,5 +4,5 @@
     "ghcr.io/stu-bell/devcontainer-features/open-code:0": {},
     "ghcr.io/devcontainers/features/sshd:1": {}
   },
-  "postCreateCommand": "curl -fsSL https://opencode.ai/install | bash && (grep -q '.opencode/bin' ~/.bashrc || echo 'export PATH=\"$HOME/.opencode/bin:$PATH\"' >> ~/.bashrc); (grep -q '.opencode/bin' ~/.zshrc || echo 'export PATH=\"$HOME/.opencode/bin:$PATH\"' >> ~/.zshrc)"
+  "postCreateCommand": "# ============================================================\n# postCreateCommand - chay moi lan tao container MOI (khong phu thuoc image cache).\n# ============================================================\n# --- opencode (CLI agent) ---\nif [ ! -x \"$HOME/.opencode/bin/opencode\" ]; then\n  curl -fsSL https://opencode.ai/install | bash\nfi\n\n# --- dam bao PATH cho ca bash lan zsh ---\nfor rc in \"$HOME/.bashrc\" \"$HOME/.zshrc\"; do\n  if [ -f \"$rc\" ] && ! grep -q '.opencode/bin' \"$rc\"; then\n    echo 'export PATH=\"$HOME/.opencode/bin:$PATH\"' >> \"$rc\"\n  fi\ndone\n\n# --- VI DU them app khac (bo comment de dung, hoac them block moi) ---\n# if ! command -v ripgrep >/dev/null 2>&1; then\n#   sudo apt-get update && sudo apt-get install -y ripgrep\n# fi\n# if ! command -v node >/dev/null 2>&1; then\n#   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -\n#   sudo apt-get install -y nodejs\n# fi"
 }
