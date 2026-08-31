@@ -1,13 +1,14 @@
 {
-  "fetched_at": "2026-07-31T07:04:33.120Z",
+  "fetched_at": "2026-08-31T09:14:50.368Z",
   "source": "https://opencode.ai/zen/v1/models",
   "free": [
     "big-pickle",
     "deepseek-v4-flash-free",
     "laguna-s-2.1-free",
-    "ling-3.0-flash-free",
+    "ling-3.0-flash-fin-free",
     "mimo-v2.5-free",
+    "muse-spark-1.2-contributor-free",
     "nemotron-3-ultra-free",
-    "north-mini-code-free"
+    "nemotron-3.5-lightning-free"
   ]
 }
