@@ -1,13 +1,16 @@
 {
-  "fetched_at": "2026-07-31T07:04:33.120Z",
+  "fetched_at": "2026-10-19T08:25:00.430Z",
   "source": "https://opencode.ai/zen/v1/models",
   "free": [
+    "beam-free",
     "big-pickle",
-    "deepseek-v4-flash-free",
-    "laguna-s-2.1-free",
-    "ling-3.0-flash-free",
-    "mimo-v2.5-free",
-    "nemotron-3-ultra-free",
-    "north-mini-code-free"
+    "deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free",
+    "jev-1.13-free",
+    "longcat-2.5-preview-free",
+    "mimo-v2.6-flash-free",
+    "nemotron-3.5-lightning-free",
+    "nemotron-3.5-super-vl-free",
+    "space-bunny-free"
   ]
 }
